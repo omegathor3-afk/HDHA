@@ -44,12 +44,17 @@ object BotProtocol {
         }.array()
     }
 
-    fun parseCsw(bytes: ByteArray): CommandStatusWrapper {
+    fun parseCsw(bytes: ByteArray, expectedTag: Long? = null, expectedTransferLength: Long? = null): CommandStatusWrapper {
         require(bytes.size == CSW_LENGTH) { "CSW must be exactly 13 bytes" }
         val buffer = ByteBuffer.wrap(bytes).order(ByteOrder.LITTLE_ENDIAN)
         require(buffer.int == CSW_SIGNATURE) { "Invalid CSW signature" }
         val tag = buffer.int.toLong() and 0xFFFF_FFFFL
         val residue = buffer.int.toLong() and 0xFFFF_FFFFL
+        expectedTag?.let { require(tag == it) { "CSW tag does not match the command" } }
+        expectedTransferLength?.let {
+            require(it in 0L..0xFFFF_FFFFL) { "Expected transfer length is out of range" }
+            require(residue <= it) { "CSW residue exceeds requested transfer length" }
+        }
         val status = buffer.get().toInt() and 0xFF
         require(status in 0..2) { "Invalid BOT command status: $status" }
         return CommandStatusWrapper(tag, residue, status)

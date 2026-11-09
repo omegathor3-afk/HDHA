@@ -51,6 +51,25 @@ class BotProtocolTest {
         assertThrows(IllegalArgumentException::class.java) { BotProtocol.parseCsw(invalidStatus) }
     }
 
+    @Test fun rejectsCswWithMismatchedExpectedTag() {
+        val bytes = ByteBuffer.allocate(13).order(ByteOrder.LITTLE_ENDIAN)
+            .putInt(0x53425355).putInt(7).putInt(0).put(0.toByte()).array()
+        assertThrows(IllegalArgumentException::class.java) { BotProtocol.parseCsw(bytes, expectedTag = 8) }
+    }
+
+    @Test fun rejectsCswResidueLargerThanRequestedTransfer() {
+        val bytes = ByteBuffer.allocate(13).order(ByteOrder.LITTLE_ENDIAN)
+            .putInt(0x53425355).putInt(7).putInt(37).put(0.toByte()).array()
+        assertThrows(IllegalArgumentException::class.java) {
+            BotProtocol.parseCsw(bytes, expectedTag = 7, expectedTransferLength = 36)
+        }
+    }
+
+    @Test fun acceptsZeroResidueForExactInquiryLength() {
+        val bytes = ByteBuffer.allocate(13).order(ByteOrder.LITTLE_ENDIAN)
+            .putInt(0x53425355).putInt(7).putInt(0).put(0.toByte()).array()
+        assertEquals(0L, BotProtocol.parseCsw(bytes, 7, 36).residue)
+    }
     @Test fun parsesInquiryIdentityFields() {
         val response = ByteArray(36)
         response[0] = 0

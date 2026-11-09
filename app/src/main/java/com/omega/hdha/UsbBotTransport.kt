@@ -56,8 +56,10 @@ object UsbBotTransport {
         val connection = manager.openDevice(device)
             ?: return failure("Android could not open the USB device.")
 
+        var claimed = false
         return try {
-            if (!connection.claimInterface(candidate, false)) {
+            claimed = connection.claimInterface(candidate, false)
+            if (!claimed) {
                 failure("Could not claim the USB mass-storage interface.")
             } else {
                 executeInquiry(connection, bulkIn, bulkOut)
@@ -65,7 +67,9 @@ object UsbBotTransport {
         } catch (e: Exception) {
             failure("USB inquiry failed: ${e.message ?: e.javaClass.simpleName}")
         } finally {
-            try { connection.releaseInterface(candidate) } catch (_: Exception) { }
+            if (claimed) {
+                try { connection.releaseInterface(candidate) } catch (_: Exception) { }
+            }
             connection.close()
         }
     }
@@ -101,14 +105,11 @@ object UsbBotTransport {
         if (cswRead != cswBytes.size) return failure("BOT status wrapper transfer failed or timed out.")
 
         val csw = try {
-            BotProtocol.parseCsw(cswBytes)
+            BotProtocol.parseCsw(cswBytes, expectedTag = tag, expectedTransferLength = expectedLength.toLong())
         } catch (e: IllegalArgumentException) {
             return failure(e.message ?: "Invalid BOT status wrapper.")
         }
-        if (csw.tag != tag) return failure("BOT status tag does not match the command.")
-        if (csw.residue > expectedLength.toLong() ||
-            dataRead.toLong() + csw.residue != expectedLength.toLong()
-        ) return failure("BOT data residue is inconsistent with the received data.")
+        if (dataRead.toLong() + csw.residue != expectedLength.toLong()) return failure("BOT data residue is inconsistent with the received data.")
         if (csw.status != 0) {
             return failure(
                 when (csw.status) {

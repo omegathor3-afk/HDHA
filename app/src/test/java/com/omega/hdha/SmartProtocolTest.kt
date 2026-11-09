@@ -25,8 +25,8 @@ class SmartProtocolTest {
         sense[8] = 0x09
         sense[9] = 0x0C
         sense[11] = 0 // ATA error
-        sense[17] = lbaMid.toByte()
-        sense[19] = lbaHigh.toByte()
+        sense[16] = lbaMid.toByte()
+        sense[18] = lbaHigh.toByte()
         sense[21] = 0x50
         return sense
     }
@@ -120,7 +120,7 @@ class SmartProtocolTest {
         assertThrows(IllegalArgumentException::class.java) { SmartProtocol.parseReadThresholds(invalid) }
     }
 
-    @Test fun parsesSmartReturnStatusPassSignature() {
+    @Test fun parsesSmartReturnStatusUsingLowLbaBytesNotExpandedBytes() {\n        val sense = returnSense(0x4F, 0xC2).apply { this[17] = 0x11; this[19] = 0x22 }\n        assertFalse(SmartProtocol.parseAtaReturnDescriptor(sense).thresholdExceeded!!)\n    }\n\n    @Test fun parsesSmartReturnStatusPassSignature() {
         val parsed = SmartProtocol.parseAtaReturnDescriptor(returnSense(0x4F, 0xC2))
         assertFalse(parsed.thresholdExceeded!!)
         assertEquals(0x50, parsed.status)

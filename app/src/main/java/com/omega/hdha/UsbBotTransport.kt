@@ -262,7 +262,6 @@ object UsbBotTransport {
                     bulkIn.address,
                     ByteArray(0),
                     0,
-                    0,
                     TRANSFER_TIMEOUT_MS
                 )
             } catch (_: Exception) { -1 }

@@ -91,6 +91,7 @@ class SmartInsightsTest {
         val alerts = SmartTrendAnalyzer.compare(previousOtherDrive, current)
         assertFalse(alerts.any { it.attributeId == 5 && it.severity == AlertSeverity.WARNING })
         assertTrue(alerts.any { it.message.contains("First saved sample") })
+        assertFalse(alerts.any { it.message.contains("fell from") })
     }
 
     @Test fun differentDeviceSamplesAreNotComparedByAnalyzerWhenNoMatchingPreviousProvided() {

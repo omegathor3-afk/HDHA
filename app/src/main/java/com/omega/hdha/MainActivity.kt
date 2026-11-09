@@ -3,6 +3,9 @@ package com.omega.hdha
 import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
+import android.content.BroadcastReceiver
+import android.content.IntentFilter
+import android.os.Build
 import android.hardware.usb.UsbDevice
 import android.hardware.usb.UsbManager
 import android.os.Bundle
@@ -37,6 +40,13 @@ import kotlinx.coroutines.withContext
 class MainActivity : ComponentActivity() {
     private lateinit var usbManager: UsbManager
     private var devices by mutableStateOf(emptyList<UsbDriveCandidate>())
+    private var permissionGrantedDevices by mutableStateOf<Set<String>>(emptySet())
+    private val permissionResultReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context, intent: Intent) {
+            if (intent.action == UsbPermissionReceiver.ACTION_PERMISSION_RESULT) refreshDevices()
+        }
+    }
+    private var permissionReceiverRegistered = false
     private var inquiryResults by mutableStateOf<Map<String, UsbBotTransport.InquiryResult>>(emptyMap())
     private var ataResults by mutableStateOf<Map<String, UsbBotTransport.AtaIdentifyResult>>(emptyMap())
     private var smartResults by mutableStateOf<Map<String, UsbBotTransport.SmartResult>>(emptyMap())
@@ -48,6 +58,14 @@ class MainActivity : ComponentActivity() {
         usbManager = getSystemService(Context.USB_SERVICE) as UsbManager
         historyStore = SmartHistoryStore(applicationContext)
         historySamples = historyStore.readAll()
+        val resultFilter = IntentFilter(UsbPermissionReceiver.ACTION_PERMISSION_RESULT)
+        if (Build.VERSION.SDK_INT >= 33) {
+            registerReceiver(permissionResultReceiver, resultFilter, Context.RECEIVER_NOT_EXPORTED)
+        } else {
+            @Suppress("DEPRECATION")
+            registerReceiver(permissionResultReceiver, resultFilter)
+        }
+        permissionReceiverRegistered = true
         setContent {
             MaterialTheme {
                 HdhaScreen(
@@ -56,7 +74,7 @@ class MainActivity : ComponentActivity() {
                     ataResults = ataResults,
                     smartResults = smartResults,
                     historySamples = historySamples,
-                    hasPermission = { name -> usbManager.deviceList[name]?.let(usbManager::hasPermission) == true },
+                    hasPermission = { name -> name in permissionGrantedDevices },
                     onRefresh = ::refreshDevices,
                     onRequestPermission = ::requestUsbPermission,
                     onRunInquiry = ::runInquiry,
@@ -73,8 +91,20 @@ class MainActivity : ComponentActivity() {
         if (::usbManager.isInitialized) refreshDevices()
     }
 
+    override fun onDestroy() {
+        if (permissionReceiverRegistered) {
+            unregisterReceiver(permissionResultReceiver)
+            permissionReceiverRegistered = false
+        }
+        super.onDestroy()
+    }
+
     private fun refreshDevices() {
-        devices = UsbDeviceInspector.discover(usbManager)
+        val found = UsbDeviceInspector.discover(usbManager)
+        devices = found
+        permissionGrantedDevices = found.filter { candidate ->
+            usbManager.deviceList[candidate.deviceName]?.let(usbManager::hasPermission) == true
+        }.map { it.deviceName }.toSet()
     }
 
     private fun requestUsbPermission(deviceName: String) {
@@ -307,21 +337,15 @@ private fun HdhaScreen(
                                     }
                                     Button(
                                         onClick = { onRunInquiry(device.deviceName) },
-                                        enabled = hasPermission(device.deviceName) && device.interfaces.any {
-                                            UsbMassStorageProfile.inspect(it)?.canAttemptBulkOnlyTransport == true
-                                        }
+                                        enabled = hasPermission(device.deviceName)
                                     ) { Text("Read device identity") }
                                     Button(
                                         onClick = { onRunAtaIdentify(device.deviceName) },
-                                        enabled = hasPermission(device.deviceName) && device.interfaces.any {
-                                            UsbMassStorageProfile.inspect(it)?.canAttemptBulkOnlyTransport == true
-                                        }
+                                        enabled = hasPermission(device.deviceName)
                                     ) { Text("Probe SAT / Identify ATA") }
                                     Button(
                                         onClick = { onRunSmart(device.deviceName) },
-                                        enabled = hasPermission(device.deviceName) && device.interfaces.any {
-                                            UsbMassStorageProfile.inspect(it)?.canAttemptBulkOnlyTransport == true
-                                        }
+                                        enabled = hasPermission(device.deviceName)
                                     ) { Text("Read SMART data and status") }
                                 }
                             }

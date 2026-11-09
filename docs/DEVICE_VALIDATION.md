@@ -1,6 +1,6 @@
 # Physical-device validation checklist
 
-Do not mark a physical test as passed until it has actually been run and its observations recorded.
+Do not mark any physical test as passed until it has actually been run and its observations recorded.
 
 ## Record setup
 - Phone model and Android version
@@ -9,10 +9,12 @@ Do not mark a physical test as passed until it has actually been run and its obs
 - Enclosure or SATA-USB bridge model and chipset if known
 - Drive model, interface, capacity and power requirements
 
-## USB discovery
+## USB discovery and descriptors
 - [ ] Connect a USB flash drive; record VID/PID and interface descriptors.
 - [ ] Connect a 2.5-inch SATA drive in a USB enclosure.
 - [ ] Repeat through a powered hub if direct OTG power is insufficient.
+- [ ] Record interface class, subclass, protocol and endpoint directions/types.
+- [ ] Check BOT (protocol 0x50) and UAS (protocol 0x62) classification against a known host descriptor report.
 - [ ] Connect/disconnect repeatedly; check for stale device entries.
 - [ ] Deny permission; verify no communication is attempted.
 - [ ] Grant permission; refresh and verify permission state.

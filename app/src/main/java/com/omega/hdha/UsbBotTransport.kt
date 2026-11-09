@@ -58,7 +58,8 @@ object UsbBotTransport {
             val botPreparation = prepareBotTransport(connection, candidate, bulkIn, bulkOut)
             val data = executeReadOnlyDataIn(
                 connection, bulkIn, bulkOut, BotProtocol.buildInquiryCdb(),
-                BotProtocol.INQUIRY_DATA_LENGTH
+                BotProtocol.INQUIRY_DATA_LENGTH,
+                transportDiagnostics = botPreparation
             )
             val parsed = BotProtocol.parseInquiry(data)
             InquiryResult(
@@ -101,7 +102,8 @@ object UsbBotTransport {
             val payload = executeReadOnlyDataIn(
                 connection, bulkIn, bulkOut,
                 BotProtocol.buildAtaIdentifyDeviceCdb(),
-                BotProtocol.ATA_IDENTIFY_DATA_LENGTH
+                BotProtocol.ATA_IDENTIFY_DATA_LENGTH,
+                transportDiagnostics = botPreparation
             )
             val parsed = BotProtocol.parseAtaIdentify(payload)
             AtaIdentifyResult(
@@ -166,7 +168,8 @@ object UsbBotTransport {
 
             val rawData = executeReadOnlyDataIn(
                 connection, bulkIn, bulkOut, SmartProtocol.buildReadDataCdb(),
-                SmartProtocol.SECTOR_LENGTH
+                SmartProtocol.SECTOR_LENGTH,
+                transportDiagnostics = botPreparation
             )
             val smartData = SmartProtocol.parseReadData(rawData)
 
@@ -267,14 +270,15 @@ object UsbBotTransport {
         bulkOut: UsbEndpoint,
         cdb: ByteArray,
         expectedLength: Int,
-        allowShort: Boolean = false
+        allowShort: Boolean = false,
+        transportDiagnostics: String = ""
     ): ByteArray {
         require(expectedLength > 0) { "Read-only BOT data length must be positive." }
         val tag = nextTag.getAndIncrement().toLong().and(0xFFFF_FFFFL).let { if (it == 0L) 1L else it }
         val cbw = BotProtocol.buildCbw(tag, expectedLength.toLong(), cdb)
         val cbwSent = connection.bulkTransfer(bulkOut, cbw, cbw.size, TRANSFER_TIMEOUT_MS)
         check(cbwSent == cbw.size) {
-            "BOT CBW Bulk-OUT transfer failed: returned=$cbwSent expected=${cbw.size}; endpoint=0x%02X maxPacket=${bulkOut.maxPacketSize}; timeout=${TRANSFER_TIMEOUT_MS}ms; CBW=${cbw.joinToString(" ") { "%02X".format(it.toInt() and 0xFF) }}.".format(bulkOut.address)
+            "BOT CBW Bulk-OUT transfer failed: returned=$cbwSent expected=${cbw.size}; endpoint=0x%02X maxPacket=${bulkOut.maxPacketSize}; timeout=${TRANSFER_TIMEOUT_MS}ms; $transportDiagnostics CBW=${cbw.joinToString(" ") { "%02X".format(it.toInt() and 0xFF) }}.".format(bulkOut.address)
         }
 
         val data = ByteArray(expectedLength)
@@ -409,7 +413,7 @@ object UsbBotTransport {
         val tag = nextTag.getAndIncrement().toLong().and(0xFFFF_FFFFL).let { if (it == 0L) 1L else it }
         val cbw = BotProtocol.buildCbw(tag, 0L, cdb, dataIn = false)
         val cbwSent = connection.bulkTransfer(bulkOut, cbw, cbw.size, TRANSFER_TIMEOUT_MS)
-        check(cbwSent == cbw.size) { "BOT no-data command wrapper transfer failed or timed out." }
+        check(cbwSent == cbw.size) { "BOT no-data CBW Bulk-OUT transfer failed: returned=$cbwSent expected=${cbw.size}; endpoint=0x%02X maxPacket=${bulkOut.maxPacketSize}; timeout=${TRANSFER_TIMEOUT_MS}ms.".format(bulkOut.address) }
         val cswBytes = ByteArray(BotProtocol.CSW_LENGTH)
         val cswRead = connection.bulkTransfer(bulkIn, cswBytes, cswBytes.size, TRANSFER_TIMEOUT_MS)
         check(cswRead == cswBytes.size) { "BOT no-data status wrapper transfer failed or timed out." }

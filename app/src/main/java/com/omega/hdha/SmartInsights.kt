@@ -104,7 +104,11 @@ object SmartTrendAnalyzer {
                 "SMART RETURN STATUS is unknown; no overall health verdict is available.")
             false -> Unit
         }
-        val prior = previous?.attributes?.associateBy { it.id }.orEmpty()
+        val prior = previous
+            ?.takeIf { it.deviceKey == current.deviceKey }
+            ?.attributes
+            ?.associateBy { it.id }
+            .orEmpty()
         val profile = SmartAttributeProfiles.resolve(current.vendor, current.model)
         current.attributes.forEach { now ->
             val definition = SmartAttributeProfiles.describe(profile, now.id)

@@ -13,7 +13,7 @@ import java.util.concurrent.atomic.AtomicInteger
  * Neither command modifies media or reads user data sectors.
  */
 object UsbBotTransport {
-    private const val TRANSFER_TIMEOUT_MS = 3_000
+    private const val TRANSFER_TIMEOUT_MS = 10_000
     private val nextTag = AtomicInteger(1)
 
     data class InquiryResult(
@@ -53,11 +53,13 @@ object UsbBotTransport {
             ?: return inquiryFailure("Android could not open the USB device.")
         var claimed = false
         return try {
-            claimed = connection.claimInterface(candidate, false)
-            check(claimed) { "Could not claim the USB mass-storage interface." }
+            claimed = claimInterfaceWithFallback(connection, candidate)
+            check(claimed) { "Android refused the USB mass-storage interface, including the forced claim attempt. Close any file-manager window using this drive, safely eject it if Android offers that option, reconnect the adapter, and retry." }
+            val botPreparation = prepareBotTransport(connection, candidate, bulkIn, bulkOut)
             val data = executeReadOnlyDataIn(
                 connection, bulkIn, bulkOut, BotProtocol.buildInquiryCdb(),
-                BotProtocol.INQUIRY_DATA_LENGTH
+                BotProtocol.INQUIRY_DATA_LENGTH,
+                transportDiagnostics = botPreparation
             )
             val parsed = BotProtocol.parseInquiry(data)
             InquiryResult(
@@ -94,12 +96,14 @@ object UsbBotTransport {
             ?: return ataFailure(null, "Android could not open the USB device.")
         var claimed = false
         return try {
-            claimed = connection.claimInterface(candidate, false)
-            check(claimed) { "Could not claim the USB mass-storage interface." }
+            claimed = claimInterfaceWithFallback(connection, candidate)
+            check(claimed) { "Android refused the USB mass-storage interface, including the forced claim attempt. Close any file-manager window using this drive, safely eject it if Android offers that option, reconnect the adapter, and retry." }
+            val botPreparation = prepareBotTransport(connection, candidate, bulkIn, bulkOut)
             val payload = executeReadOnlyDataIn(
                 connection, bulkIn, bulkOut,
                 BotProtocol.buildAtaIdentifyDeviceCdb(),
-                BotProtocol.ATA_IDENTIFY_DATA_LENGTH
+                BotProtocol.ATA_IDENTIFY_DATA_LENGTH,
+                transportDiagnostics = botPreparation
             )
             val parsed = BotProtocol.parseAtaIdentify(payload)
             AtaIdentifyResult(
@@ -158,12 +162,14 @@ object UsbBotTransport {
             ?: return smartFailure("Android could not open the USB device.")
         var claimed = false
         return try {
-            claimed = connection.claimInterface(candidate, false)
-            check(claimed) { "Could not claim the USB mass-storage interface." }
+            claimed = claimInterfaceWithFallback(connection, candidate)
+            check(claimed) { "Android refused the USB mass-storage interface, including the forced claim attempt. Close any file-manager window using this drive, safely eject it if Android offers that option, reconnect the adapter, and retry." }
+            val botPreparation = prepareBotTransport(connection, candidate, bulkIn, bulkOut)
 
             val rawData = executeReadOnlyDataIn(
                 connection, bulkIn, bulkOut, SmartProtocol.buildReadDataCdb(),
-                SmartProtocol.SECTOR_LENGTH
+                SmartProtocol.SECTOR_LENGTH,
+                transportDiagnostics = botPreparation
             )
             val smartData = SmartProtocol.parseReadData(rawData)
 
@@ -212,23 +218,125 @@ object UsbBotTransport {
         }
     }
 
+
+    /**
+     * Starts a fresh BOT session using the class-defined reset-recovery sequence.
+     * The reset is followed by clearing HALT on Bulk-IN and then Bulk-OUT.
+     * This is transport recovery only; it never issues a media write command.
+     */
+    private fun prepareBotTransport(
+        connection: UsbDeviceConnection,
+        intf: UsbInterface,
+        bulkIn: UsbEndpoint,
+        bulkOut: UsbEndpoint
+    ): String {
+        val reset = try {
+            connection.controlTransfer(0x21, 0xFF, 0, intf.id, ByteArray(0), 0, TRANSFER_TIMEOUT_MS)
+        } catch (_: Exception) { -1 }
+        val clearIn = try {
+            connection.controlTransfer(0x02, 0x01, 0, bulkIn.address, ByteArray(0), 0, TRANSFER_TIMEOUT_MS)
+        } catch (_: Exception) { -1 }
+        val clearOut = try {
+            connection.controlTransfer(0x02, 0x01, 0, bulkOut.address, ByteArray(0), 0, TRANSFER_TIMEOUT_MS)
+        } catch (_: Exception) { -1 }
+        return "BOT reset=$reset, clear-IN=$clearIn, clear-OUT=$clearOut, interface=${intf.id}, alt=${intf.alternateSetting}."
+    }
+
+    /**
+     * Android may already have the USB storage interface claimed by its own
+     * storage stack. Try the normal claim first, then Android's documented
+     * force option. This does not guarantee the bridge supports SAT.
+     */
+    private fun claimInterfaceWithFallback(
+        connection: UsbDeviceConnection,
+        intf: android.hardware.usb.UsbInterface
+    ): Boolean {
+        val normalClaim = try {
+            connection.claimInterface(intf, false)
+        } catch (_: Exception) {
+            false
+        }
+        if (normalClaim) return true
+        return try {
+            connection.claimInterface(intf, true)
+        } catch (_: Exception) {
+            false
+        }
+    }
+
     private fun executeReadOnlyDataIn(
         connection: UsbDeviceConnection,
         bulkIn: UsbEndpoint,
         bulkOut: UsbEndpoint,
         cdb: ByteArray,
         expectedLength: Int,
-        allowShort: Boolean = false
+        allowShort: Boolean = false,
+        transportDiagnostics: String = ""
     ): ByteArray {
         require(expectedLength > 0) { "Read-only BOT data length must be positive." }
         val tag = nextTag.getAndIncrement().toLong().and(0xFFFF_FFFFL).let { if (it == 0L) 1L else it }
         val cbw = BotProtocol.buildCbw(tag, expectedLength.toLong(), cdb)
         val cbwSent = connection.bulkTransfer(bulkOut, cbw, cbw.size, TRANSFER_TIMEOUT_MS)
-        check(cbwSent == cbw.size) { "BOT command wrapper transfer failed or timed out." }
+        check(cbwSent == cbw.size) {
+            "BOT CBW Bulk-OUT transfer failed: returned=$cbwSent expected=${cbw.size}; endpoint=0x%02X maxPacket=${bulkOut.maxPacketSize}; timeout=${TRANSFER_TIMEOUT_MS}ms; $transportDiagnostics CBW=${cbw.joinToString(" ") { "%02X".format(it.toInt() and 0xFF) }}.".format(bulkOut.address)
+        }
 
         val data = ByteArray(expectedLength)
         val dataRead = connection.bulkTransfer(bulkIn, data, data.size, TRANSFER_TIMEOUT_MS)
-        check(dataRead > 0 && dataRead <= expectedLength) { "BOT data stage failed or returned no bytes ($dataRead)." }
+        if (dataRead <= 0) {
+            // A failed ATA/SCSI data command may STALL the Bulk-IN endpoint.
+            // BOT requires clearing that halt before attempting to fetch the CSW.
+            val clearResult = try {
+                connection.controlTransfer(
+                    0x02, // host-to-device, standard, endpoint recipient
+                    0x01, // CLEAR_FEATURE
+                    0x0000, // ENDPOINT_HALT
+                    bulkIn.address,
+                    ByteArray(0),
+                    0,
+                    TRANSFER_TIMEOUT_MS
+                )
+            } catch (_: Exception) { -1 }
+            val failedCswBytes = ByteArray(BotProtocol.CSW_LENGTH)
+            val failedCswRead = connection.bulkTransfer(
+                bulkIn, failedCswBytes, failedCswBytes.size, TRANSFER_TIMEOUT_MS
+            )
+            if (failedCswRead == BotProtocol.CSW_LENGTH) {
+                val failedCsw = try {
+                    BotProtocol.parseCsw(
+                        failedCswBytes, expectedTag = tag,
+                        expectedTransferLength = expectedLength.toLong()
+                    )
+                } catch (e: Exception) {
+                    throw IllegalStateException(
+                        "BOT data stage returned $dataRead; endpoint halt clear=$clearResult; CSW was malformed: ${e.message}",
+                        e
+                    )
+                }
+                val senseSummary = if (failedCsw.status == 1) {
+                    try {
+                        val sense = executeReadOnlyDataIn(
+                            connection, bulkIn, bulkOut,
+                            SmartProtocol.buildRequestSenseCdb(),
+                            SmartProtocol.REQUEST_SENSE_ALLOCATION_LENGTH,
+                            allowShort = true
+                        )
+                        describeSense(sense)
+                    } catch (senseError: Exception) {
+                        "REQUEST SENSE failed: ${senseError.message ?: senseError.javaClass.simpleName}"
+                    }
+                } else {
+                    "REQUEST SENSE skipped because BOT status was ${failedCsw.status}."
+                }
+                throw IllegalStateException(
+                    "USB bridge rejected the ATA/SCSI data command: data stage=$dataRead, CSW status=${failedCsw.status}, residue=${failedCsw.residue}/$expectedLength. Endpoint halt clear=$clearResult. $senseSummary SMART support in IDENTIFY does not guarantee this SMART command is passed through."
+                )
+            }
+            throw IllegalStateException(
+                "BOT data stage returned $dataRead and no CSW was received (CSW transfer=$failedCswRead, endpoint halt clear=$clearResult). The USB bridge may have stalled or timed out the ATA/SCSI command."
+            )
+        }
+        check(dataRead <= expectedLength) { "BOT data stage exceeded the requested length ($dataRead/$expectedLength)." }
         if (!allowShort) check(dataRead == expectedLength) {
             "BOT data stage incomplete ($dataRead/$expectedLength bytes)."
         }
@@ -250,6 +358,52 @@ object UsbBotTransport {
         return data.copyOf(dataRead)
     }
 
+    private fun describeSense(sense: ByteArray): String {
+        if (sense.size < 8) return "REQUEST SENSE returned only ${sense.size} bytes."
+        val response = sense[0].toInt() and 0x7F
+        val descriptorFormat = response == 0x72 || response == 0x73
+        val fixedFormat = response == 0x70 || response == 0x71
+        if (!descriptorFormat && !fixedFormat) {
+            return "REQUEST SENSE returned an unknown response format 0x%02X.".format(response)
+        }
+        val key = if (descriptorFormat) sense[1].toInt() and 0x0F else sense[2].toInt() and 0x0F
+        val asc = if (descriptorFormat) sense[2].toInt() and 0xFF
+            else if (sense.size > 12) sense[12].toInt() and 0xFF else -1
+        val ascq = if (descriptorFormat) sense[3].toInt() and 0xFF
+            else if (sense.size > 13) sense[13].toInt() and 0xFF else -1
+        val descriptorTypes = if (descriptorFormat) {
+            val end = minOf(sense.size, 8 + (sense[7].toInt() and 0xFF))
+            val types = mutableListOf<String>()
+            var offset = 8
+            while (offset + 2 <= end) {
+                val type = sense[offset].toInt() and 0xFF
+                val length = sense[offset + 1].toInt() and 0xFF
+                if (offset + 2 + length > end) {
+                    types += "TRUNCATED"
+                    break
+                }
+                types += "0x%02X".format(type)
+                offset += 2 + length
+            }
+            types
+        } else emptyList()
+        val keyName = when (key) {
+            0x0 -> "NO SENSE"
+            0x1 -> "RECOVERED ERROR"
+            0x2 -> "NOT READY"
+            0x3 -> "MEDIUM ERROR"
+            0x4 -> "HARDWARE ERROR"
+            0x5 -> "ILLEGAL REQUEST"
+            0x6 -> "UNIT ATTENTION"
+            0x7 -> "DATA PROTECT"
+            0xB -> "ABORTED COMMAND"
+            0xD -> "VOLUME OVERFLOW"
+            0xE -> "MISCOMPARE"
+            else -> "UNKNOWN"
+        }
+        return "REQUEST SENSE: format=${if (descriptorFormat) "descriptor" else "fixed"}, senseKey=0x%X ($keyName), ASC=${if (asc >= 0) "0x%02X".format(asc) else "unavailable"}, ASCQ=${if (ascq >= 0) "0x%02X".format(ascq) else "unavailable"}, descriptorTypes=$descriptorTypes.".format(key)
+    }
+
     private fun executeNoDataCommand(
         connection: UsbDeviceConnection,
         bulkIn: UsbEndpoint,
@@ -259,7 +413,7 @@ object UsbBotTransport {
         val tag = nextTag.getAndIncrement().toLong().and(0xFFFF_FFFFL).let { if (it == 0L) 1L else it }
         val cbw = BotProtocol.buildCbw(tag, 0L, cdb, dataIn = false)
         val cbwSent = connection.bulkTransfer(bulkOut, cbw, cbw.size, TRANSFER_TIMEOUT_MS)
-        check(cbwSent == cbw.size) { "BOT no-data command wrapper transfer failed or timed out." }
+        check(cbwSent == cbw.size) { "BOT no-data CBW Bulk-OUT transfer failed: returned=$cbwSent expected=${cbw.size}; endpoint=0x%02X maxPacket=${bulkOut.maxPacketSize}; timeout=${TRANSFER_TIMEOUT_MS}ms.".format(bulkOut.address) }
         val cswBytes = ByteArray(BotProtocol.CSW_LENGTH)
         val cswRead = connection.bulkTransfer(bulkIn, cswBytes, cswBytes.size, TRANSFER_TIMEOUT_MS)
         check(cswRead == cswBytes.size) { "BOT no-data status wrapper transfer failed or timed out." }

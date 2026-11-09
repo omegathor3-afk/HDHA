@@ -5,6 +5,9 @@ import android.content.Context
 import android.content.Intent
 import android.content.BroadcastReceiver
 import android.content.IntentFilter
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.widget.Toast
 import android.os.Build
 import android.hardware.usb.UsbDevice
 import android.hardware.usb.UsbManager
@@ -80,7 +83,9 @@ class MainActivity : ComponentActivity() {
                     onRunInquiry = ::runInquiry,
                     onRunAtaIdentify = ::runAtaIdentify,
                     onRunSmart = ::runSmart,
-                    onExportReport = ::exportReport
+                    onRunFullScan = ::runFullScan,
+                    onExportReport = ::exportReport,
+                    onCopy = ::copyText
                 )
             }
         }
@@ -157,6 +162,38 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    private fun runFullScan(deviceName: String) {
+        val device = usbManager.deviceList[deviceName] ?: return
+        inquiryResults = inquiryResults - deviceName
+        ataResults = ataResults - deviceName
+        smartResults = smartResults - deviceName
+        lifecycleScope.launch {
+            val inquiry = withContext(Dispatchers.IO) { UsbBotTransport.inquiry(usbManager, device) }
+            inquiryResults = inquiryResults + (deviceName to inquiry)
+            val identify = withContext(Dispatchers.IO) { UsbBotTransport.identifyAta(usbManager, device) }
+            ataResults = ataResults + (deviceName to identify)
+            val smart = withContext(Dispatchers.IO) { UsbBotTransport.readSmart(usbManager, device) }
+            smartResults = smartResults + (deviceName to smart)
+            if (smart.success) {
+                val candidate = devices.firstOrNull { it.deviceName == deviceName }
+                val vendor = inquiry.vendor.ifBlank { candidate?.manufacturer.orEmpty() }
+                val model = identify.model.ifBlank { candidate?.product.orEmpty() }
+                val serial = identify.serialNumber
+                val key = serial.ifBlank { (candidate?.vendorId.toString() + ":" + candidate?.productId + ":" + model) }
+                val profile = SmartAttributeProfiles.resolve(vendor, model)
+                val sample = SmartSample(System.currentTimeMillis(), key, vendor, model, serial, profile.key,
+                    smart.thresholdExceeded, smart.attributes, smart.thresholds)
+                historySamples = withContext(Dispatchers.IO) { historyStore.append(sample) }
+            }
+        }
+    }
+
+    private fun copyText(label: String, text: String) {
+        val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+        clipboard.setPrimaryClip(ClipData.newPlainText(label, text))
+        Toast.makeText(this, "$label copied", Toast.LENGTH_SHORT).show()
+    }
+
     private fun exportReport() {
         val report = historyStore.report(historySamples)
         val intent = Intent(Intent.ACTION_SEND).apply {
@@ -183,7 +220,9 @@ private fun HdhaScreen(
     onRunInquiry: (String) -> Unit,
     onRunAtaIdentify: (String) -> Unit,
     onRunSmart: (String) -> Unit,
-    onExportReport: () -> Unit
+    onRunFullScan: (String) -> Unit,
+    onExportReport: () -> Unit,
+    onCopy: (String, String) -> Unit
 ) {
     Scaffold(topBar = { TopAppBar(title = { Text("HDHA · Drive Inspector") }) }) { padding ->
         Column(
@@ -203,10 +242,32 @@ private fun HdhaScreen(
                         Card(modifier = Modifier.fillMaxWidth()) {
                             Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                                 Text(device.product, style = MaterialTheme.typography.titleMedium)
+                                Button(onClick = { onRunFullScan(device.deviceName) }) { Text("Run full drive health scan") }
                                 Text(device.manufacturer)
                                 Text("VID: %04X · PID: %04X".format(device.vendorId, device.productId))
                                 Text(if (device.hasMassStorageInterface) "USB Mass Storage interface detected" else "Not identified as USB Mass Storage")
                                 Text("Interfaces: ${device.interfaces.size}")
+                                Button(onClick = {
+                                    val report = buildString {
+                                        appendLine("HDHA USB DEVICE DIAGNOSTICS")
+                                        appendLine("Name: ${device.product}")
+                                        appendLine("Manufacturer: ${device.manufacturer}")
+                                        appendLine("VID: %04X · PID: %04X".format(device.vendorId, device.productId))
+                                        appendLine("Device path: ${device.deviceName}")
+                                        appendLine("USB permission: ${hasPermission(device.deviceName)}")
+                                        device.interfaces.forEach { intf ->
+                                            appendLine("Interface ${intf.id}: class=${intf.interfaceClass}, subclass=${intf.subclass}, protocol=0x${intf.protocol.toString(16)}")
+                                            intf.endpoints.forEach { ep -> appendLine("Endpoint ${ep.address}: ${ep.direction} ${ep.type}, maxPacket=${ep.maxPacketSize}") }
+                                        }
+                                        inquiryResults[device.deviceName]?.let { appendLine("INQUIRY: success=${it.success}; vendor=${it.vendor}; product=${it.product}; revision=${it.revision}; message=${it.message}") }
+                                        ataResults[device.deviceName]?.let { appendLine("ATA IDENTIFY: success=${it.success}; model=${it.model}; serial=${it.serialNumber}; firmware=${it.firmware}; SMART supported=${it.smartSupported}; enabled=${it.smartEnabled}; message=${it.message}") }
+                                        smartResults[device.deviceName]?.let { s ->
+                                            appendLine("SMART: success=${s.success}; thresholdExceeded=${s.thresholdExceeded}; message=${s.message}")
+                                            s.attributes.forEach { a -> appendLine("Attribute ${a.id}: current=${a.current}, worst=${a.worst}, raw=${a.rawValueHex}, threshold=${s.thresholds[a.id] ?: "N/A"}") }
+                                        }
+                                    }
+                                    onCopy("Device diagnostics", report)
+                                }) { Text("Copy all device diagnostics") }
                                 device.interfaces.forEach { intf ->
                                     Text("Interface ${intf.id}: class ${intf.interfaceClass}, subclass ${intf.subclass}, protocol 0x${intf.protocol.toString(16)}")
                                     val profile = UsbMassStorageProfile.inspect(intf)
@@ -231,6 +292,7 @@ private fun HdhaScreen(
                                         Text("Removable: ${inquiry.removable}")
                                     }
                                     Text(inquiry.message, style = MaterialTheme.typography.bodySmall)
+                                    Button(onClick = { onCopy("SCSI INQUIRY", "success=${inquiry.success}\\nvendor=${inquiry.vendor}\\nproduct=${inquiry.product}\\nrevision=${inquiry.revision}\\nperipheralType=${inquiry.peripheralDeviceType}\\nremovable=${inquiry.removable}\\nmessage=${inquiry.message}") }) { Text("Copy INQUIRY result") }
                                 }
                                 val ata = ataResults[device.deviceName]
                                 if (ata != null) {
@@ -251,6 +313,7 @@ private fun HdhaScreen(
                                         else ata.rotationRateRpm?.let { Text("Rotation rate: $it RPM") }
                                     }
                                     Text(ata.message, style = MaterialTheme.typography.bodySmall)
+                                    Button(onClick = { onCopy("ATA IDENTIFY", "success=${ata.success}\\nSAT=${ata.satSupported}\\nmodel=${ata.model}\\nserial=${ata.serialNumber}\\nfirmware=${ata.firmware}\\nSMART supported=${ata.smartSupported}\\nSMART enabled=${ata.smartEnabled}\\nLBA48=${ata.lba48Supported}\\ncapacityBytes=${ata.capacityBytes}\\nmessage=${ata.message}") }) { Text("Copy ATA / SAT result") }
                                 }
                                 val smart = smartResults[device.deviceName]
                                 if (smart == null) {
@@ -298,6 +361,15 @@ private fun HdhaScreen(
                                         }
                                     }
                                     Text(smart.message, style = MaterialTheme.typography.bodySmall)
+                                    Button(onClick = {
+                                        val details = buildString {
+                                            appendLine("SMART success=${smart.success}")
+                                            appendLine("Threshold exceeded=${smart.thresholdExceeded}")
+                                            appendLine(smart.message)
+                                            smart.attributes.forEach { a -> appendLine("ID ${a.id}: current=${a.current}, worst=${a.worst}, raw=${a.rawValueHex}, threshold=${smart.thresholds[a.id] ?: "N/A"}") }
+                                        }
+                                        onCopy("SMART data", details)
+                                    }) { Text("Copy SMART data and errors") }
                                     val historyAta = ataResults[device.deviceName]
                                     val historyKey = historyAta?.serialNumber?.takeIf { it.isNotBlank() }
                                         ?: (device.vendorId.toString() + ":" + device.productId + ":" + historyAta?.model.orEmpty().ifBlank { device.product })

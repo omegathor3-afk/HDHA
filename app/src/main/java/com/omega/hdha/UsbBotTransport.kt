@@ -13,7 +13,7 @@ import java.util.concurrent.atomic.AtomicInteger
  * Neither command modifies media or reads user data sectors.
  */
 object UsbBotTransport {
-    private const val TRANSFER_TIMEOUT_MS = 3_000
+    private const val TRANSFER_TIMEOUT_MS = 10_000
     private val nextTag = AtomicInteger(1)
 
     data class InquiryResult(
@@ -55,6 +55,7 @@ object UsbBotTransport {
         return try {
             claimed = claimInterfaceWithFallback(connection, candidate)
             check(claimed) { "Android refused the USB mass-storage interface, including the forced claim attempt. Close any file-manager window using this drive, safely eject it if Android offers that option, reconnect the adapter, and retry." }
+            val botPreparation = prepareBotTransport(connection, candidate, bulkIn, bulkOut)
             val data = executeReadOnlyDataIn(
                 connection, bulkIn, bulkOut, BotProtocol.buildInquiryCdb(),
                 BotProtocol.INQUIRY_DATA_LENGTH
@@ -96,6 +97,7 @@ object UsbBotTransport {
         return try {
             claimed = claimInterfaceWithFallback(connection, candidate)
             check(claimed) { "Android refused the USB mass-storage interface, including the forced claim attempt. Close any file-manager window using this drive, safely eject it if Android offers that option, reconnect the adapter, and retry." }
+            val botPreparation = prepareBotTransport(connection, candidate, bulkIn, bulkOut)
             val payload = executeReadOnlyDataIn(
                 connection, bulkIn, bulkOut,
                 BotProtocol.buildAtaIdentifyDeviceCdb(),
@@ -160,6 +162,7 @@ object UsbBotTransport {
         return try {
             claimed = claimInterfaceWithFallback(connection, candidate)
             check(claimed) { "Android refused the USB mass-storage interface, including the forced claim attempt. Close any file-manager window using this drive, safely eject it if Android offers that option, reconnect the adapter, and retry." }
+            val botPreparation = prepareBotTransport(connection, candidate, bulkIn, bulkOut)
 
             val rawData = executeReadOnlyDataIn(
                 connection, bulkIn, bulkOut, SmartProtocol.buildReadDataCdb(),
@@ -214,6 +217,29 @@ object UsbBotTransport {
 
 
     /**
+     * Starts a fresh BOT session using the class-defined reset-recovery sequence.
+     * The reset is followed by clearing HALT on Bulk-IN and then Bulk-OUT.
+     * This is transport recovery only; it never issues a media write command.
+     */
+    private fun prepareBotTransport(
+        connection: UsbDeviceConnection,
+        intf: UsbInterface,
+        bulkIn: UsbEndpoint,
+        bulkOut: UsbEndpoint
+    ): String {
+        val reset = try {
+            connection.controlTransfer(0x21, 0xFF, 0, intf.id, ByteArray(0), 0, TRANSFER_TIMEOUT_MS)
+        } catch (_: Exception) { -1 }
+        val clearIn = try {
+            connection.controlTransfer(0x02, 0x01, 0, bulkIn.address, ByteArray(0), 0, TRANSFER_TIMEOUT_MS)
+        } catch (_: Exception) { -1 }
+        val clearOut = try {
+            connection.controlTransfer(0x02, 0x01, 0, bulkOut.address, ByteArray(0), 0, TRANSFER_TIMEOUT_MS)
+        } catch (_: Exception) { -1 }
+        return "BOT reset=$reset, clear-IN=$clearIn, clear-OUT=$clearOut, interface=${intf.id}, alt=${intf.alternateSetting}."
+    }
+
+    /**
      * Android may already have the USB storage interface claimed by its own
      * storage stack. Try the normal claim first, then Android's documented
      * force option. This does not guarantee the bridge supports SAT.
@@ -247,7 +273,9 @@ object UsbBotTransport {
         val tag = nextTag.getAndIncrement().toLong().and(0xFFFF_FFFFL).let { if (it == 0L) 1L else it }
         val cbw = BotProtocol.buildCbw(tag, expectedLength.toLong(), cdb)
         val cbwSent = connection.bulkTransfer(bulkOut, cbw, cbw.size, TRANSFER_TIMEOUT_MS)
-        check(cbwSent == cbw.size) { "BOT command wrapper transfer failed or timed out." }
+        check(cbwSent == cbw.size) {
+            "BOT CBW Bulk-OUT transfer failed: returned=$cbwSent expected=${cbw.size}; endpoint=0x%02X maxPacket=${bulkOut.maxPacketSize}; timeout=${TRANSFER_TIMEOUT_MS}ms; CBW=${cbw.joinToString(" ") { "%02X".format(it.toInt() and 0xFF) }}.".format(bulkOut.address)
+        }
 
         val data = ByteArray(expectedLength)
         val dataRead = connection.bulkTransfer(bulkIn, data, data.size, TRANSFER_TIMEOUT_MS)

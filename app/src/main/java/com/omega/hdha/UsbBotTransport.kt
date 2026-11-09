@@ -329,16 +329,47 @@ object UsbBotTransport {
     private fun describeSense(sense: ByteArray): String {
         if (sense.size < 8) return "REQUEST SENSE returned only ${sense.size} bytes."
         val response = sense[0].toInt() and 0x7F
-        val key = sense[1].toInt() and 0x0F
-        val asc = sense[2].toInt() and 0xFF
-        val ascq = sense[3].toInt() and 0xFF
-        val descriptorTypes = if (response == 0x72 || response == 0x73) {
+        val descriptorFormat = response == 0x72 || response == 0x73
+        val fixedFormat = response == 0x70 || response == 0x71
+        if (!descriptorFormat && !fixedFormat) {
+            return "REQUEST SENSE returned an unknown response format 0x%02X.".format(response)
+        }
+        val key = if (descriptorFormat) sense[1].toInt() and 0x0F else sense[2].toInt() and 0x0F
+        val asc = if (descriptorFormat) sense[2].toInt() and 0xFF
+            else if (sense.size > 12) sense[12].toInt() and 0xFF else -1
+        val ascq = if (descriptorFormat) sense[3].toInt() and 0xFF
+            else if (sense.size > 13) sense[13].toInt() and 0xFF else -1
+        val descriptorTypes = if (descriptorFormat) {
             val end = minOf(sense.size, 8 + (sense[7].toInt() and 0xFF))
-            (8 until end).mapNotNull { offset ->
-                if (offset + 1 < end) "0x%02X".format(sense[offset].toInt() and 0xFF) else null
-            }.distinct()
+            val types = mutableListOf<String>()
+            var offset = 8
+            while (offset + 2 <= end) {
+                val type = sense[offset].toInt() and 0xFF
+                val length = sense[offset + 1].toInt() and 0xFF
+                if (offset + 2 + length > end) {
+                    types += "TRUNCATED"
+                    break
+                }
+                types += "0x%02X".format(type)
+                offset += 2 + length
+            }
+            types
         } else emptyList()
-        return "REQUEST SENSE: response=0x%02X, senseKey=0x%X, ASC=0x%02X, ASCQ=0x%02X, descriptorTypes=$descriptorTypes.".format(response, key, asc, ascq)
+        val keyName = when (key) {
+            0x0 -> "NO SENSE"
+            0x1 -> "RECOVERED ERROR"
+            0x2 -> "NOT READY"
+            0x3 -> "MEDIUM ERROR"
+            0x4 -> "HARDWARE ERROR"
+            0x5 -> "ILLEGAL REQUEST"
+            0x6 -> "UNIT ATTENTION"
+            0x7 -> "DATA PROTECT"
+            0xB -> "ABORTED COMMAND"
+            0xD -> "VOLUME OVERFLOW"
+            0xE -> "MISCOMPARE"
+            else -> "UNKNOWN"
+        }
+        return "REQUEST SENSE: format=${if (descriptorFormat) "descriptor" else "fixed"}, senseKey=0x%X ($keyName), ASC=${if (asc >= 0) "0x%02X".format(asc) else "unavailable"}, ASCQ=${if (ascq >= 0) "0x%02X".format(ascq) else "unavailable"}, descriptorTypes=$descriptorTypes.".format(key)
     }
 
     private fun executeNoDataCommand(

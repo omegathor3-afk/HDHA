@@ -14,6 +14,16 @@ object BotProtocol {
 
     data class CommandStatusWrapper(val tag: Long, val residue: Long, val status: Int)
 
+    data class AtaIdentifyData(
+        val serialNumber: String,
+        val firmwareRevision: String,
+        val model: String,
+        val supportsLba48: Boolean,
+        val lba28SectorCount: Long,
+        val lba48SectorCount: Long,
+        val capacityBytes: Long
+    )
+
     data class AtaIdentifyData(val serialNumber: String, val firmware: String, val model: String, val smartSupported: Boolean, val smartEnabled: Boolean, val lba48Supported: Boolean, val rotationRateRpm: Int?)
 
     data class InquiryData(
@@ -84,6 +94,60 @@ object BotProtocol {
             smartEnabled = (word(85) and 1) != 0,
             lba48Supported = (word(83) and 0x0400) != 0,
             rotationRateRpm = rotation
+        )
+    }
+
+    /**
+     * SAT ATA PASS-THROUGH(12), PIO Data-In, one 512-byte block,
+     * ATA IDENTIFY DEVICE (0xEC). This command only reads device identity.
+     */
+    fun buildAtaPassThrough12IdentifyCdb(): ByteArray = byteArrayOf(
+        0xA1.toByte(), // ATA PASS-THROUGH(12)
+        0x08,          // Protocol: PIO Data-In
+        0x00,          // Multiple count / reserved
+        0x0E,          // T_DIR=IN, BYT_BLOK=1, T_LENGTH=sector count
+        0x00,          // Features
+        0x01,          // Sector count
+        0x00, 0x00, 0x00, // LBA low/mid/high
+        0xEC.toByte(), // IDENTIFY DEVICE
+        0x00           // Control
+    )
+
+    fun parseAtaIdentify(bytes: ByteArray): AtaIdentifyData {
+        require(bytes.size == 512) { "ATA IDENTIFY response must be exactly 512 bytes" }
+        fun word(index: Int): Int {
+            val offset = index * 2
+            return (bytes[offset].toInt() and 0xFF) or
+                ((bytes[offset + 1].toInt() and 0xFF) shl 8)
+        }
+        require(word(0) != 0 && word(0) != 0xFFFF) {
+            "ATA IDENTIFY response has an invalid general-configuration word"
+        }
+        fun ataString(firstWord: Int, wordCount: Int): String {
+            val out = ByteArray(wordCount * 2)
+            repeat(wordCount) { i ->
+                out[i * 2] = bytes[(firstWord + i) * 2 + 1]
+                out[i * 2 + 1] = bytes[(firstWord + i) * 2]
+            }
+            return String(out, Charset.forName("US-ASCII"))
+                .map { if (it.code in 0x20..0x7E) it else ' ' }
+                .joinToString("").trim()
+        }
+        val lba28 = (word(61).toLong() shl 16) or word(60).toLong()
+        val supportsLba48 = (word(83) and (1 shl 10)) != 0
+        val lba48 = if (supportsLba48) {
+            word(103).toLong().shl(48) or word(102).toLong().shl(32) or
+                word(101).toLong().shl(16) or word(100).toLong()
+        } else 0L
+        val sectors = if (lba48 > 0) lba48 else lba28
+        return AtaIdentifyData(
+            serialNumber = ataString(10, 10),
+            firmwareRevision = ataString(23, 4),
+            model = ataString(27, 20),
+            supportsLba48 = supportsLba48,
+            lba28SectorCount = lba28,
+            lba48SectorCount = lba48,
+            capacityBytes = sectors * 512L
         )
     }
 

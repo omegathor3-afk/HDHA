@@ -28,6 +28,17 @@ object UsbBotTransport {
         val message: String
     )
 
+    data class AtaIdentifyResult(
+        val success: Boolean,
+        val satSupported: Boolean?,
+        val serialNumber: String = "",
+        val firmwareRevision: String = "",
+        val model: String = "",
+        val supportsLba48: Boolean = false,
+        val capacityBytes: Long = 0L,
+        val message: String
+    )
+
     data class InquiryResult(
         val success: Boolean,
         val vendor: String = "",
@@ -141,6 +152,109 @@ object UsbBotTransport {
     }
 
     private fun ataFailure(message: String) = AtaIdentifyResult(success = false, message = message)
+
+    /**
+     * Probes SAT by issuing only ATA IDENTIFY DEVICE through ATA PASS-THROUGH(12).
+     * A rejected command is reported as SAT not confirmed; it is never interpreted
+     * as a drive-health result.
+     */
+    fun identifyAta(manager: UsbManager, device: UsbDevice): AtaIdentifyResult {
+        if (!manager.hasPermission(device)) {
+            return ataFailure(null, "USB permission has not been granted.")
+        }
+        val candidate = (0 until device.interfaceCount)
+            .asSequence()
+            .map(device::getInterface)
+            .firstOrNull { intf ->
+                intf.interfaceClass == UsbMassStorageProfile.CLASS_MASS_STORAGE &&
+                    intf.interfaceSubclass == UsbMassStorageProfile.SUBCLASS_SCSI_TRANSPARENT &&
+                    intf.interfaceProtocol == UsbMassStorageProfile.PROTOCOL_BULK_ONLY &&
+                    findEndpoint(intf, UsbConstants.USB_DIR_IN) != null &&
+                    findEndpoint(intf, UsbConstants.USB_DIR_OUT) != null
+            } ?: return ataFailure(null, "No compatible BOT interface. SAT cannot be probed.")
+        val bulkIn = findEndpoint(candidate, UsbConstants.USB_DIR_IN)
+            ?: return ataFailure(null, "Bulk IN endpoint is missing.")
+        val bulkOut = findEndpoint(candidate, UsbConstants.USB_DIR_OUT)
+            ?: return ataFailure(null, "Bulk OUT endpoint is missing.")
+        val connection = manager.openDevice(device)
+            ?: return ataFailure(null, "Android could not open the USB device.")
+        var claimed = false
+        return try {
+            claimed = connection.claimInterface(candidate, false)
+            if (!claimed) {
+                ataFailure(null, "Could not claim the USB mass-storage interface.")
+            } else {
+                executeAtaIdentify(connection, bulkIn, bulkOut)
+            }
+        } catch (e: Exception) {
+            ataFailure(null, "SAT probe failed: ${e.message ?: e.javaClass.simpleName}")
+        } finally {
+            if (claimed) {
+                try { connection.releaseInterface(candidate) } catch (_: Exception) { }
+            }
+            connection.close()
+        }
+    }
+
+    private fun executeAtaIdentify(
+        connection: UsbDeviceConnection,
+        bulkIn: UsbEndpoint,
+        bulkOut: UsbEndpoint
+    ): AtaIdentifyResult {
+        val tag = (nextTag.getAndIncrement().toLong() and 0xFFFF_FFFFL).let {
+            if (it == 0L) 1L else it
+        }
+        val expectedLength = 512
+        val cbw = BotProtocol.buildCbw(
+            tag, expectedLength.toLong(), BotProtocol.buildAtaPassThrough12IdentifyCdb()
+        )
+        val cbwSent = connection.bulkTransfer(bulkOut, cbw, cbw.size, TRANSFER_TIMEOUT_MS)
+        if (cbwSent != cbw.size) return ataFailure(null, "SAT probe CBW failed or timed out.")
+        val data = ByteArray(expectedLength)
+        val dataRead = connection.bulkTransfer(bulkIn, data, data.size, TRANSFER_TIMEOUT_MS)
+        if (dataRead != expectedLength) {
+            return ataFailure(null, "ATA IDENTIFY data stage incomplete ($dataRead/$expectedLength).")
+        }
+        val cswBytes = ByteArray(BotProtocol.CSW_LENGTH)
+        val cswRead = connection.bulkTransfer(bulkIn, cswBytes, cswBytes.size, TRANSFER_TIMEOUT_MS)
+        if (cswRead != cswBytes.size) return ataFailure(null, "SAT probe CSW failed or timed out.")
+        val csw = try {
+            BotProtocol.parseCsw(cswBytes, expectedTag = tag, expectedTransferLength = expectedLength.toLong())
+        } catch (e: IllegalArgumentException) {
+            return ataFailure(null, e.message ?: "Invalid BOT status wrapper during SAT probe.")
+        }
+        if (dataRead.toLong() + csw.residue != expectedLength.toLong()) {
+            return ataFailure(null, "SAT probe returned inconsistent data residue.")
+        }
+        if (csw.status != 0) {
+            return ataFailure(
+                csw.status == 1,
+                if (csw.status == 1) {
+                    "SAT not confirmed: USB bridge rejected ATA PASS-THROUGH(12) / IDENTIFY DEVICE."
+                } else {
+                    "SAT probe encountered a BOT phase error; reconnect the drive."
+                }
+            )
+        }
+        val identify = try {
+            BotProtocol.parseAtaIdentify(data)
+        } catch (e: IllegalArgumentException) {
+            return ataFailure(null, "ATA IDENTIFY response was invalid: ${e.message}")
+        }
+        return AtaIdentifyResult(
+            success = true,
+            satSupported = true,
+            serialNumber = identify.serialNumber,
+            firmwareRevision = identify.firmwareRevision,
+            model = identify.model,
+            supportsLba48 = identify.supportsLba48,
+            capacityBytes = identify.capacityBytes,
+            message = "SAT ATA IDENTIFY succeeded. This is device information, not a SMART health assessment."
+        )
+    }
+
+    private fun ataFailure(satSupported: Boolean?, message: String) =
+        AtaIdentifyResult(success = false, satSupported = satSupported, message = message)
 
     private fun findEndpoint(intf: UsbInterface, direction: Int): UsbEndpoint? =
         (0 until intf.endpointCount)

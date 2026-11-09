@@ -80,6 +80,13 @@ class BotProtocolTest {
         putWord(82, 1)
         putWord(83, 0x0400)
         putWord(85, 1)
+        putWord(49, 1 shl 9)
+        putWord(60, 0xFFFF)
+        putWord(61, 0x000F)
+        putWord(100, 0x5678)
+        putWord(101, 0x1234)
+        putWord(102, 0)
+        putWord(103, 0)
         putWord(217, 1)
         val parsed = BotProtocol.parseAtaIdentify(data)
         assertEquals("SN123456", parsed.serialNumber)
@@ -90,11 +97,14 @@ class BotProtocolTest {
         assertTrue(parsed.lba48Supported)
         assertTrue(parsed.nonRotatingMedia)
         assertNull(parsed.rotationRateRpm)
+        assertEquals(0x000F_FFFFL, parsed.lba28SectorCount)
+        assertEquals(0x12345678L, parsed.lba48SectorCount)
+        assertEquals(0x12345678L * 512L, parsed.capacityBytes)
     }
 
     @Test fun parsesAtaRotationRateWithoutCallingNonRotatingMediaOneRpm() {
         val data = ByteArray(512)
-        data[1] = 0x00
+        data[0] = 0x40
         data[434] = 0x58 // word 217 low byte = 0x0258 = 600 RPM
         data[435] = 0x02
         val parsed = BotProtocol.parseAtaIdentify(data)
@@ -116,6 +126,40 @@ class BotProtocolTest {
         assertNotNull(BotProtocol.parseAtaIdentify(valid))
         valid[510] = 0x1A
         assertThrows(IllegalArgumentException::class.java) { BotProtocol.parseAtaIdentify(valid) }
+    }
+
+
+    @Test fun fallsBackToLba28WhenLba48IsNotAdvertised() {
+        val data = ByteArray(512)
+        data[0] = 0x40
+        fun putWord(index: Int, value: Int) {
+            data[index * 2] = value.toByte()
+            data[index * 2 + 1] = (value ushr 8).toByte()
+        }
+        putWord(49, 1 shl 9)
+        putWord(60, 0x1234)
+        putWord(61, 0x0002)
+        putWord(100, 0xFFFF)
+        val parsed = BotProtocol.parseAtaIdentify(data)
+        assertFalse(parsed.lba48Supported)
+        assertEquals(0x0002_1234L, parsed.lba28SectorCount)
+        assertEquals(0L, parsed.lba48SectorCount)
+        assertEquals(0x0002_1234L * 512L, parsed.capacityBytes)
+    }
+
+    @Test fun rejectsZeroAndAllOnesAtaGeneralConfiguration() {
+        assertThrows(IllegalArgumentException::class.java) { BotProtocol.parseAtaIdentify(ByteArray(512)) }
+        val allOnes = ByteArray(512).apply { this[0] = 0xFF.toByte(); this[1] = 0xFF.toByte() }
+        assertThrows(IllegalArgumentException::class.java) { BotProtocol.parseAtaIdentify(allOnes) }
+    }
+
+    @Test fun noLbaSupportDoesNotInventCapacity() {
+        val data = ByteArray(512)
+        data[0] = 0x40
+        data[120] = 0xFF.toByte()
+        data[121] = 0xFF.toByte()
+        val parsed = BotProtocol.parseAtaIdentify(data)
+        assertEquals(0L, parsed.capacityBytes)
     }
 
     @Test fun parsesScsiInquiryIdentityFields() {

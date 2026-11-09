@@ -10,7 +10,7 @@ HDHA inspects external HDDs and SSDs connected to Android through USB OTG. It di
 - BOT transport: claims the selected interface, sends a 31-byte CBW, receives the data-in phase and validates the 13-byte CSW, including signature, tag, status and residue.
 - SCSI identity: INQUIRY (6-byte CDB, 36-byte allocation) returns peripheral type, removable flag, vendor, product and revision.
 - SAT probe: ATA PASS-THROUGH(16), PIO data-in, IDENTIFY DEVICE (0xEC), requesting exactly one 512-byte identification block.
-- ATA IDENTIFY parser: decodes serial, firmware, model, SMART supported/enabled bits, LBA48 support and media rotation information. It validates the optional checksum when the 0xA5 signature is present.
+- ATA IDENTIFY parser: decodes serial, firmware, model, SMART supported/enabled bits, LBA28/LBA48 capacity and media rotation information. It validates the optional checksum when the 0xA5 signature is present.
 - Future SMART support: SMART READ DATA, SMART READ THRESHOLDS and SMART RETURN STATUS. Preserve raw bytes and do not assume vendor-specific raw attribute values have universal meanings.
 
 ## SAT and BOT safeguards

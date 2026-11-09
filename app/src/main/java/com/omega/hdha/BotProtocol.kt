@@ -29,7 +29,10 @@ object BotProtocol {
         val smartEnabled: Boolean,
         val lba48Supported: Boolean,
         val nonRotatingMedia: Boolean,
-        val rotationRateRpm: Int?
+        val rotationRateRpm: Int?,
+        val lba28SectorCount: Long,
+        val lba48SectorCount: Long,
+        val capacityBytes: Long
     )
 
     fun buildInquiryCdb(): ByteArray =
@@ -111,21 +114,34 @@ object BotProtocol {
             val out = StringBuilder(wordCount * 2)
             for (i in firstWord until firstWord + wordCount) {
                 val value = word(i)
-                out.append(((value ushr 8) and 0xFF).toChar())
-                out.append((value and 0xFF).toChar())
+                val high = (value ushr 8) and 0xFF
+                val low = value and 0xFF
+                out.append(if (high in 0x20..0x7E) high.toChar() else ' ')
+                out.append(if (low in 0x20..0x7E) low.toChar() else ' ')
             }
             return out.toString().trim { it <= ' ' || it == '\u0000' }
         }
         val rotationWord = word(217)
+        val lba28Supported = (word(49) and (1 shl 9)) != 0
+        val lba28 = if (lba28Supported) (word(61).toLong() shl 16) or word(60).toLong() else 0L
+        val lba48Supported = (word(83) and 0x0400) != 0
+        val lba48 = if (lba48Supported) {
+            (word(103).toLong() shl 48) or (word(102).toLong() shl 32) or
+                (word(101).toLong() shl 16) or word(100).toLong()
+        } else 0L
+        val sectors = if (lba48 > 0) lba48 else lba28
         return AtaIdentifyData(
             serialNumber = ataString(10, 10),
             firmware = ataString(23, 4),
             model = ataString(27, 20),
             smartSupported = (word(82) and 0x0001) != 0,
             smartEnabled = (word(85) and 0x0001) != 0,
-            lba48Supported = (word(83) and 0x0400) != 0,
+            lba48Supported = lba48Supported,
             nonRotatingMedia = rotationWord == 1,
-            rotationRateRpm = rotationWord.takeIf { it in 2..0xFFFE }
+            rotationRateRpm = rotationWord.takeIf { it in 2..0xFFFE },
+            lba28SectorCount = lba28,
+            lba48SectorCount = lba48,
+            capacityBytes = sectors * 512L
         )
     }
 }

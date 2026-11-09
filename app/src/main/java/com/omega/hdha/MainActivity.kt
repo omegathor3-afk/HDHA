@@ -168,6 +168,9 @@ private fun HdhaScreen(
                                         Text("Firmware: ${ata.firmware.ifBlank { "Unknown" }}")
                                         Text("SMART supported: ${ata.smartSupported} · enabled: ${ata.smartEnabled}")
                                         Text("48-bit LBA: ${ata.lba48Supported}")
+                                        if (ata.capacityBytes > 0L) {
+                                            Text("Reported capacity: ${"%.2f".format(ata.capacityBytes / 1_000_000_000.0)} GB")
+                                        }
                                         if (ata.nonRotatingMedia) Text("Media: non-rotating (commonly SSD)")
                                         else ata.rotationRateRpm?.let { Text("Rotation rate: $it RPM") }
                                     }

@@ -37,6 +37,7 @@ object UsbBotTransport {
         val lba48Supported: Boolean = false,
         val nonRotatingMedia: Boolean = false,
         val rotationRateRpm: Int? = null,
+        val capacityBytes: Long = 0L,
         val message: String
     )
 
@@ -112,6 +113,7 @@ object UsbBotTransport {
                 lba48Supported = parsed.lba48Supported,
                 nonRotatingMedia = parsed.nonRotatingMedia,
                 rotationRateRpm = parsed.rotationRateRpm,
+                capacityBytes = parsed.capacityBytes,
                 message = "SAT ATA IDENTIFY succeeded. This is device information, not a SMART health assessment."
             )
         } catch (e: Exception) {

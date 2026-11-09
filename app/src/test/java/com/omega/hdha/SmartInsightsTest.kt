@@ -85,6 +85,14 @@ class SmartInsightsTest {
         assertTrue(SmartReportFormatter.format(emptyList()).contains("No SMART samples"))
     }
 
+    @Test fun previousSampleFromAnotherDriveIsIgnored() {
+        val previousOtherDrive = sample(current = 95).copy(deviceKey = "other-drive")
+        val current = sample(time = 2, current = 89)
+        val alerts = SmartTrendAnalyzer.compare(previousOtherDrive, current)
+        assertFalse(alerts.any { it.attributeId == 5 && it.severity == AlertSeverity.WARNING })
+        assertTrue(alerts.any { it.message.contains("First saved sample") })
+    }
+
     @Test fun differentDeviceSamplesAreNotComparedByAnalyzerWhenNoMatchingPreviousProvided() {
         val unrelated = sample().copy(deviceKey = "another-drive", serial = "another-drive")
         val alerts = SmartTrendAnalyzer.compare(null, unrelated)

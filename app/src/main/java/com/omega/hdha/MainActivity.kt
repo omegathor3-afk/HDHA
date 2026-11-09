@@ -40,7 +40,6 @@ class MainActivity : ComponentActivity() {
     private var devices by mutableStateOf(emptyList<UsbDriveCandidate>())
     private var inquiryResults by mutableStateOf<Map<String, UsbBotTransport.InquiryResult>>(emptyMap())
     private var ataResults by mutableStateOf<Map<String, UsbBotTransport.AtaIdentifyResult>>(emptyMap())
-    private var ataResults by mutableStateOf<Map<String, UsbBotTransport.AtaIdentifyResult>>(emptyMap())
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -51,12 +50,10 @@ class MainActivity : ComponentActivity() {
                     devices = devices,
                     inquiryResults = inquiryResults,
                     ataResults = ataResults,
-                    ataResults = ataResults,
                     hasPermission = { name -> usbManager.deviceList[name]?.let(usbManager::hasPermission) == true },
                     onRefresh = ::refreshDevices,
                     onRequestPermission = ::requestUsbPermission,
                     onRunInquiry = ::runInquiry,
-                    onRunAtaIdentify = ::runAtaIdentify,
                     onRunAtaIdentify = ::runAtaIdentify
                 )
             }
@@ -93,17 +90,6 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    private fun runAtaIdentify(deviceName: String) {
-        val device = usbManager.deviceList[deviceName] ?: return
-        ataResults = ataResults - deviceName
-        lifecycleScope.launch {
-            val result = withContext(Dispatchers.IO) {
-                UsbBotTransport.identifyAta(usbManager, device)
-            }
-            ataResults = ataResults + (deviceName to result)
-        }
-    }
-
     private fun runInquiry(deviceName: String) {
         val device = usbManager.deviceList[deviceName] ?: return
         inquiryResults = inquiryResults - deviceName
@@ -121,7 +107,6 @@ class MainActivity : ComponentActivity() {
 private fun HdhaScreen(
     devices: List<UsbDriveCandidate>,
     inquiryResults: Map<String, UsbBotTransport.InquiryResult>,
-    ataResults: Map<String, UsbBotTransport.AtaIdentifyResult>,
     ataResults: Map<String, UsbBotTransport.AtaIdentifyResult>,
     hasPermission: (String) -> Boolean,
     onRefresh: () -> Unit,
@@ -165,18 +150,6 @@ private fun HdhaScreen(
                                         Text("  ${endpoint.direction} ${endpoint.type} · endpoint 0x${endpoint.address.toString(16)} · packet ${endpoint.maxPacketSize}")
                                     }
                                 }
-                                val ata = ataResults[device.deviceName]
-                                if (ata != null) {
-                                    Text(if (ata.success) "SAT: supported · ATA IDENTIFY succeeded" else "SAT: ${if (ata.satSupported == false) "rejected" else "not confirmed"}", style = MaterialTheme.typography.titleSmall)
-                                    if (ata.success) {
-                                        Text("Model: ${ata.model.ifBlank { "Unknown" }}")
-                                        Text("Serial: ${ata.serialNumber.ifBlank { "Unknown" }}")
-                                        Text("Firmware: ${ata.firmwareRevision.ifBlank { "Unknown" }}")
-                                        Text("LBA48: ${ata.supportsLba48}")
-                                        Text("Reported capacity: ${if (ata.capacityBytes > 0) "%.2f GB".format(ata.capacityBytes / 1_000_000_000.0) else "Unknown"}")
-                                    }
-                                    Text(ata.message, style = MaterialTheme.typography.bodySmall)
-                                }
                                 val result = inquiryResults[device.deviceName]
                                 if (result != null) {
                                     Text(
@@ -202,12 +175,13 @@ private fun HdhaScreen(
                                         Text("Firmware: ${ata.firmware.ifBlank { "Unknown" }}")
                                         Text("SMART supported: ${ata.smartSupported} · enabled: ${ata.smartEnabled}")
                                         Text("48-bit LBA: ${ata.lba48Supported}")
+                                        if (ata.capacityBytes > 0) Text("Reported capacity: ${"%.2f".format(ata.capacityBytes / 1_000_000_000.0)} GB")
                                         if (ata.nonRotatingMedia) Text("Media: non-rotating (commonly SSD)")
                                         else ata.rotationRateRpm?.let { Text("Rotation rate: $it RPM") }
                                     }
                                     Text(ata.message, style = MaterialTheme.typography.bodySmall)
                                 }
-                                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                                     Button(
                                         onClick = { onRequestPermission(device.deviceName) },
                                         enabled = !hasPermission(device.deviceName)

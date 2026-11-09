@@ -39,6 +39,7 @@ class MainActivity : ComponentActivity() {
     private lateinit var usbManager: UsbManager
     private var devices by mutableStateOf(emptyList<UsbDriveCandidate>())
     private var inquiryResults by mutableStateOf<Map<String, UsbBotTransport.InquiryResult>>(emptyMap())
+    private var ataResults by mutableStateOf<Map<String, UsbBotTransport.AtaIdentifyResult>>(emptyMap())
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -48,10 +49,12 @@ class MainActivity : ComponentActivity() {
                 HdhaScreen(
                     devices = devices,
                     inquiryResults = inquiryResults,
+                    ataResults = ataResults,
                     hasPermission = { name -> usbManager.deviceList[name]?.let(usbManager::hasPermission) == true },
                     onRefresh = ::refreshDevices,
                     onRequestPermission = ::requestUsbPermission,
-                    onRunInquiry = ::runInquiry
+                    onRunInquiry = ::runInquiry,
+                    onRunAtaIdentify = ::runAtaIdentify
                 )
             }
         }
@@ -78,6 +81,15 @@ class MainActivity : ComponentActivity() {
         usbManager.requestPermission(device, permissionIntent)
     }
 
+    private fun runAtaIdentify(deviceName: String) {
+        val device = usbManager.deviceList[deviceName] ?: return
+        ataResults = ataResults - deviceName
+        lifecycleScope.launch {
+            val result = withContext(Dispatchers.IO) { UsbBotTransport.identifyAta(usbManager, device) }
+            ataResults = ataResults + (deviceName to result)
+        }
+    }
+
     private fun runInquiry(deviceName: String) {
         val device = usbManager.deviceList[deviceName] ?: return
         inquiryResults = inquiryResults - deviceName
@@ -95,10 +107,12 @@ class MainActivity : ComponentActivity() {
 private fun HdhaScreen(
     devices: List<UsbDriveCandidate>,
     inquiryResults: Map<String, UsbBotTransport.InquiryResult>,
+    ataResults: Map<String, UsbBotTransport.AtaIdentifyResult>,
     hasPermission: (String) -> Boolean,
     onRefresh: () -> Unit,
     onRequestPermission: (String) -> Unit,
-    onRunInquiry: (String) -> Unit
+    onRunInquiry: (String) -> Unit,
+    onRunAtaIdentify: (String) -> Unit
 ) {
     Scaffold(topBar = { TopAppBar(title = { Text("HDHA · Drive Inspector") }) }) { padding ->
         Column(
@@ -106,7 +120,7 @@ private fun HdhaScreen(
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             Text("USB device discovery", style = MaterialTheme.typography.headlineSmall)
-            Text("SCSI INQUIRY identifies a device only; SMART health is not available in this build.")
+            Text("SCSI INQUIRY identifies the USB device. SAT probing sends ATA IDENTIFY DEVICE only (read-only); SMART attributes are not read yet.")
             Button(onClick = onRefresh) { Text("Refresh connected devices") }
             if (devices.isEmpty()) {
                 Text("No USB devices detected. Connect a drive using OTG, then refresh.")
@@ -152,6 +166,19 @@ private fun HdhaScreen(
                                     }
                                     Text(result.message, style = MaterialTheme.typography.bodySmall)
                                 }
+                                val ata = ataResults[device.deviceName]
+                                if (ata != null) {
+                                    Text(if (ata.success) "SAT / ATA IDENTIFY: succeeded" else "SAT / ATA IDENTIFY: unavailable")
+                                    if (ata.success) {
+                                        Text("Drive model: ${ata.model.ifBlank { "Unknown" }}")
+                                        Text("Serial number: ${ata.serialNumber.ifBlank { "Unknown" }}")
+                                        Text("Firmware: ${ata.firmware.ifBlank { "Unknown" }}")
+                                        Text("SMART supported: ${ata.smartSupported} · enabled: ${ata.smartEnabled}")
+                                        Text("48-bit LBA: ${ata.lba48Supported}")
+                                        ata.rotationRateRpm?.let { Text("Rotation rate: $it RPM") }
+                                    }
+                                    Text(ata.message, style = MaterialTheme.typography.bodySmall)
+                                }
                                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                                     Button(
                                         onClick = { onRequestPermission(device.deviceName) },
@@ -163,6 +190,7 @@ private fun HdhaScreen(
                                             UsbMassStorageProfile.inspect(it)?.canAttemptBulkOnlyTransport == true
                                         }
                                     ) { Text("Read device identity") }
+                                    Button(onClick = { onRunAtaIdentify(device.deviceName) }, enabled = hasPermission(device.deviceName) && device.interfaces.any { UsbMassStorageProfile.inspect(it)?.canAttemptBulkOnlyTransport == true }) { Text("Probe SAT / Identify ATA") }
                                 }
                             }
                         }
@@ -170,7 +198,7 @@ private fun HdhaScreen(
                 }
             }
             Spacer(Modifier.height(4.dp))
-            Text("Read-only command: SCSI INQUIRY. No SMART commands, writes, formatting, repair, or sector tests are performed.", style = MaterialTheme.typography.bodySmall)
+            Text("Read-only commands: SCSI INQUIRY and ATA IDENTIFY DEVICE. No SMART data commands, writes, formatting, repair, or sector tests are performed.", style = MaterialTheme.typography.bodySmall)
         }
     }
 }

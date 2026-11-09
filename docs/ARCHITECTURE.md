@@ -9,11 +9,13 @@ HDHA diagnoses external HDDs and SSDs connected to Android through USB OTG. The 
 - Descriptor classifier: identifies BOT, UAS, CBI/CBB and unknown protocol values; checks SCSI-transparent subclass and Bulk IN/OUT endpoints.
 - BOT transport: claims a matching interface, sends a 31-byte Command Block Wrapper, receives the INQUIRY data phase and validates the 13-byte Command Status Wrapper.
 - SCSI identity: INQUIRY (6-byte CDB, 36-byte allocation) extracts peripheral type, removable flag, vendor, product and revision.
-- Future SAT/SMART: ATA PASS-THROUGH (12/16) capability detection, IDENTIFY DEVICE, SMART READ DATA, SMART READ THRESHOLDS, SMART RETURN STATUS and logs. Preserve raw bytes; do not assume vendor-specific raw attributes have universal meaning.
+- SAT probe: ATA PASS-THROUGH(16), PIO data-in, IDENTIFY DEVICE (0xEC), exactly one 512-byte read-only identification block. A validated response confirms the bridge passed this command; failure is indeterminate, not proof SAT is absent.
+- IDENTIFY parser extracts ATA serial, firmware, model, SMART supported/enabled bits, LBA48 support and rotation-rate word. Optional ATA checksum is validated when its 0xA5 signature is present.
+- Future SMART: SMART READ DATA, SMART READ THRESHOLDS, SMART RETURN STATUS and logs. Preserve raw bytes; do not assume vendor-specific raw attributes have universal meaning.
 - Future history: local-only snapshots and export.
 
 ## BOT safeguards and limitations
-- Only SCSI INQUIRY is sent in this milestone. It is an identification command; it does not access user sectors or retrieve SMART health.
+- SCSI INQUIRY and ATA IDENTIFY DEVICE are the only commands sent. ATA IDENTIFY reads the drive's 512-byte identification block and does not modify media. SMART attributes are not read in this milestone.
 - The app requires USB permission and a SCSI-transparent BOT interface with Bulk IN and Bulk OUT endpoints.
 - CBW/CSW signatures, exact wrapper lengths, command tag, status and data residue are validated. Transfers have bounded timeouts.
 - On failure, timeout, or disconnect, the claimed interface is released and the connection is closed. BOT reset recovery is intentionally not attempted automatically; reconnect the device after a phase error.
@@ -33,6 +35,6 @@ USB descriptors only advertise an interface and transport protocol. They do not 
 ## Milestones
 1. USB discovery, permission and descriptor classification (complete).
 2. Read-only BOT transport and SCSI INQUIRY (implemented; hardware validation pending).
-3. SAT probing and read-only ATA SMART commands, with bridge compatibility matrix.
+3. SAT probing and read-only ATA IDENTIFY DEVICE (implemented; hardware validation pending). SMART data commands remain future work.
 4. SMART interpretation and history.
 5. Optional bounded read-only surface scan with cancellation and power warnings.

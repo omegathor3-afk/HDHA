@@ -14,6 +14,8 @@ object BotProtocol {
 
     data class CommandStatusWrapper(val tag: Long, val residue: Long, val status: Int)
 
+    data class AtaIdentifyData(val serialNumber: String, val firmware: String, val model: String, val smartSupported: Boolean, val smartEnabled: Boolean, val lba48Supported: Boolean, val rotationRateRpm: Int?)
+
     data class InquiryData(
         val peripheralDeviceType: Int,
         val removable: Boolean,
@@ -42,6 +44,47 @@ object BotProtocol {
             put(cdb)
             repeat(16 - cdb.size) { put(0.toByte()) }
         }.array()
+    }
+
+
+    /** ATA PASS-THROUGH(16), PIO data-in, one 512-byte IDENTIFY DEVICE block. */
+    fun buildAtaIdentifyDeviceCdb(): ByteArray = ByteArray(16).apply {
+        this[0] = 0x85.toByte()
+        this[1] = 0x88.toByte()
+        this[2] = 0x0E.toByte()
+        this[6] = 1
+        this[14] = 0xEC.toByte()
+    }
+
+    fun parseAtaIdentify(bytes: ByteArray): AtaIdentifyData {
+        require(bytes.size == 512) { "ATA IDENTIFY response must be exactly 512 bytes" }
+        fun word(index: Int): Int {
+            val offset = index * 2
+            return (bytes[offset].toInt() and 0xFF) or ((bytes[offset + 1].toInt() and 0xFF) shl 8)
+        }
+        require((word(0) and 0x8000) == 0) { "ATA IDENTIFY has an invalid general configuration word" }
+        if ((word(255) ushr 8) == 0xA5) {
+            require((bytes.sumOf { it.toInt() and 0xFF } and 0xFF) == 0) { "ATA IDENTIFY checksum is invalid" }
+        }
+        fun ataString(firstWord: Int, wordCount: Int): String {
+            val chars = StringBuilder(wordCount * 2)
+            for (i in firstWord until firstWord + wordCount) {
+                val value = word(i)
+                chars.append(((value ushr 8) and 0xFF).toChar())
+                chars.append((value and 0xFF).toChar())
+            }
+            return chars.toString().trim { it <= ' ' || it == '\u0000' }
+        }
+        val rotation = word(217).let { if (it in 1..0xFFFE) it else null }
+        return AtaIdentifyData(
+            serialNumber = ataString(10, 10),
+            firmware = ataString(23, 4),
+            model = ataString(27, 20),
+            smartSupported = (word(82) and 1) != 0,
+            smartEnabled = (word(85) and 1) != 0,
+            lba48Supported = (word(83) and 0x0400) != 0,
+            rotationRateRpm = rotation
+        )
     }
 
     fun parseCsw(bytes: ByteArray, expectedTag: Long? = null, expectedTransferLength: Long? = null): CommandStatusWrapper {

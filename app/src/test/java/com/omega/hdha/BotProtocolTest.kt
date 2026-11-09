@@ -70,6 +70,61 @@ class BotProtocolTest {
             .putInt(0x53425355).putInt(7).putInt(0).put(0.toByte()).array()
         assertEquals(0L, BotProtocol.parseCsw(bytes, 7, 36).residue)
     }
+
+    @Test fun buildsAtaPassThrough16IdentifyCdbAsPioDataIn() {
+        val cdb = BotProtocol.buildAtaIdentifyDeviceCdb()
+        assertEquals(16, cdb.size)
+        assertEquals(0x85.toByte(), cdb[0])
+        assertEquals(0x88.toByte(), cdb[1])
+        assertEquals(0x0E.toByte(), cdb[2])
+        assertEquals(1, cdb[6].toInt())
+        assertEquals(0xEC.toByte(), cdb[14])
+    }
+
+    @Test fun parsesAtaIdentifyStringsAndCapabilityBits() {
+        val data = ByteArray(512)
+        fun putWord(index: Int, value: Int) {
+            data[index * 2] = value.toByte()
+            data[index * 2 + 1] = (value ushr 8).toByte()
+        }
+        fun putAtaString(firstWord: Int, wordCount: Int, value: String) {
+            val padded = value.padEnd(wordCount * 2, ' ').take(wordCount * 2)
+            for (i in 0 until wordCount) putWord(firstWord + i, (padded[i * 2].code shl 8) or padded[i * 2 + 1].code)
+        }
+        putWord(0, 0x0040)
+        putAtaString(10, 10, "SN123456")
+        putAtaString(23, 4, "FW1.2")
+        putAtaString(27, 20, "EXAMPLE SATA SSD")
+        putWord(82, 1)
+        putWord(83, 0x0400)
+        putWord(85, 1)
+        putWord(217, 1)
+        val parsed = BotProtocol.parseAtaIdentify(data)
+        assertEquals("SN123456", parsed.serialNumber)
+        assertEquals("FW1.2", parsed.firmware)
+        assertEquals("EXAMPLE SATA SSD", parsed.model)
+        assertTrue(parsed.smartSupported)
+        assertTrue(parsed.smartEnabled)
+        assertTrue(parsed.lba48Supported)
+        assertEquals(1, parsed.rotationRateRpm)
+    }
+
+    @Test fun rejectsAtaIdentifyWrongLengthAndInvalidGeneralConfiguration() {
+        assertThrows(IllegalArgumentException::class.java) { BotProtocol.parseAtaIdentify(ByteArray(511)) }
+        val invalid = ByteArray(512)
+        invalid[1] = 0x80.toByte()
+        assertThrows(IllegalArgumentException::class.java) { BotProtocol.parseAtaIdentify(invalid) }
+    }
+
+    @Test fun validatesAtaIdentifyChecksumWhenSignatureIsPresent() {
+        val valid = ByteArray(512)
+        valid[511] = 0xA5.toByte()
+        valid[510] = 0x5B
+        assertEquals("", BotProtocol.parseAtaIdentify(valid).model)
+        valid[510] = 0x5A
+        assertThrows(IllegalArgumentException::class.java) { BotProtocol.parseAtaIdentify(valid) }
+    }
+
     @Test fun parsesInquiryIdentityFields() {
         val response = ByteArray(36)
         response[0] = 0

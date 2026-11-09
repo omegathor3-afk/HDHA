@@ -38,7 +38,6 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         usbManager = getSystemService(Context.USB_SERVICE) as UsbManager
-        refreshDevices()
         setContent {
             MaterialTheme {
                 HdhaScreen(
@@ -49,6 +48,11 @@ class MainActivity : ComponentActivity() {
                 )
             }
         }
+    }
+
+    override fun onResume() {
+        super.onResume()
+        if (::usbManager.isInitialized) refreshDevices()
     }
 
     private fun refreshDevices() {
@@ -82,7 +86,7 @@ private fun HdhaScreen(
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             Text("USB device discovery", style = MaterialTheme.typography.headlineSmall)
-            Text("This build detects connected USB devices only. SMART health data is not available yet.")
+            Text("Descriptor analysis only. SMART health data is not available in this build.")
             Button(onClick = onRefresh) { Text("Refresh connected devices") }
             if (devices.isEmpty()) {
                 Text("No USB devices detected. Connect a drive using OTG, then refresh.")
@@ -97,7 +101,17 @@ private fun HdhaScreen(
                                 Text(if (device.hasMassStorageInterface) "USB Mass Storage interface detected" else "Not identified as USB Mass Storage")
                                 Text("Interfaces: ${device.interfaces.size}")
                                 device.interfaces.forEach { intf ->
-                                    Text("Interface ${intf.id}: class ${intf.interfaceClass}, subclass ${intf.subclass}, protocol ${intf.protocol}")
+                                    Text("Interface ${intf.id}: class ${intf.interfaceClass}, subclass ${intf.subclass}, protocol 0x${intf.protocol.toString(16)}")
+                                    val profile = UsbMassStorageProfile.inspect(intf)
+                                    if (profile != null) {
+                                        Text("Transport: ${profile.transport}")
+                                        Text("Bulk IN: ${profile.hasBulkIn} · Bulk OUT: ${profile.hasBulkOut}")
+                                        Text(
+                                            if (profile.canAttemptBulkOnlyTransport) "BOT descriptor check: suitable for next-stage probing"
+                                            else "BOT descriptor check: not suitable"
+                                        )
+                                        Text(profile.limitation, style = MaterialTheme.typography.bodySmall)
+                                    }
                                     intf.endpoints.forEach { endpoint ->
                                         Text("  ${endpoint.direction} ${endpoint.type} · endpoint 0x${endpoint.address.toString(16)} · packet ${endpoint.maxPacketSize}")
                                     }
@@ -114,7 +128,7 @@ private fun HdhaScreen(
                 }
             }
             Spacer(Modifier.height(4.dp))
-            Text("Safety: no writes, formatting, repair, or sector tests are performed.", style = MaterialTheme.typography.bodySmall)
+            Text("No SMART commands, writes, formatting, repair, or sector tests are performed.", style = MaterialTheme.typography.bodySmall)
         }
     }
 }

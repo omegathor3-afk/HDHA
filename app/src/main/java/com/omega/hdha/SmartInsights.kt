@@ -230,6 +230,17 @@ object SmartReportFormatter {
             appendLine("Profile: ${profile.key}")
             appendLine("Samples retained: ${sorted.count { it.deviceKey == latest.deviceKey }}")
             appendLine("SMART RETURN STATUS: ${when (latest.thresholdExceeded) { true -> "THRESHOLD EXCEEDED"; false -> "NO THRESHOLD EXCEEDED"; null -> "UNKNOWN" }}")
+            val health = SmartHealthEstimator.assess(latest)
+            appendLine("HDHA ESTIMATED HEALTH: ${health.percentage?.let { "$it% — ${health.label}" } ?: health.label}")
+            appendLine("ESTIMATE CONFIDENCE: ${health.confidence}; evidence attributes: ${health.evidenceCount}")
+            appendLine("ESTIMATE NOTE: ${health.explanation}")
+            if (health.percentage != null && previous != null) {
+                val previousHealth = SmartHealthEstimator.assess(previous)
+                if (previousHealth.percentage != null) {
+                    val delta = health.percentage - previousHealth.percentage
+                    appendLine("CHANGE SINCE PREVIOUS SAMPLE: ${if (delta > 0) "+" else ""}$delta percentage points")
+                }
+            }
             appendLine()
             appendLine("ATTRIBUTES")
             latest.attributes.forEach { attribute ->

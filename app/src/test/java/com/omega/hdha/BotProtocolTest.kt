@@ -75,7 +75,7 @@ class BotProtocolTest {
         val cdb = BotProtocol.buildAtaIdentifyDeviceCdb()
         assertEquals(16, cdb.size)
         assertEquals(0x85.toByte(), cdb[0])
-        assertEquals(0x88.toByte(), cdb[1])
+        assertEquals(0x09.toByte(), cdb[1])
         assertEquals(0x0E.toByte(), cdb[2])
         assertEquals(1, cdb[6].toInt())
         assertEquals(0xEC.toByte(), cdb[14])

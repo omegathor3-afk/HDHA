@@ -202,11 +202,12 @@ private fun HdhaScreen(
                                         Text("Firmware: ${ata.firmware.ifBlank { "Unknown" }}")
                                         Text("SMART supported: ${ata.smartSupported} · enabled: ${ata.smartEnabled}")
                                         Text("48-bit LBA: ${ata.lba48Supported}")
-                                        ata.rotationRateRpm?.let { Text("Rotation rate: $it RPM") }
+                                        if (ata.nonRotatingMedia) Text("Media: non-rotating (commonly SSD)")
+                                        else ata.rotationRateRpm?.let { Text("Rotation rate: $it RPM") }
                                     }
                                     Text(ata.message, style = MaterialTheme.typography.bodySmall)
                                 }
-                                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                                     Button(
                                         onClick = { onRequestPermission(device.deviceName) },
                                         enabled = !hasPermission(device.deviceName)

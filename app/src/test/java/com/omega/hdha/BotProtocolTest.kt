@@ -106,7 +106,8 @@ class BotProtocolTest {
         assertTrue(parsed.smartSupported)
         assertTrue(parsed.smartEnabled)
         assertTrue(parsed.lba48Supported)
-        assertEquals(1, parsed.rotationRateRpm)
+        assertTrue(parsed.nonRotatingMedia)
+        assertEquals(null, parsed.rotationRateRpm)
     }
 
     @Test fun rejectsAtaIdentifyWrongLengthAndInvalidGeneralConfiguration() {

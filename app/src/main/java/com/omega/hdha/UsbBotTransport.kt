@@ -10,7 +10,7 @@ import java.util.concurrent.atomic.AtomicInteger
 
 /**
  * Minimal, read-only USB Mass Storage Bulk-Only Transport implementation.
- * It sends only SCSI INQUIRY; it never reads or writes user sectors.
+ * It sends SCSI INQUIRY and ATA IDENTIFY DEVICE only; neither command modifies media.
  */
 object UsbBotTransport {
     private const val TRANSFER_TIMEOUT_MS = 3_000
@@ -24,6 +24,7 @@ object UsbBotTransport {
         val smartSupported: Boolean = false,
         val smartEnabled: Boolean = false,
         val lba48Supported: Boolean = false,
+        val nonRotatingMedia: Boolean = false,
         val rotationRateRpm: Int? = null,
         val message: String
     )
@@ -125,6 +126,7 @@ object UsbBotTransport {
                 smartSupported = identify.smartSupported,
                 smartEnabled = identify.smartEnabled,
                 lba48Supported = identify.lba48Supported,
+                nonRotatingMedia = identify.nonRotatingMedia,
                 rotationRateRpm = identify.rotationRateRpm,
                 message = "ATA IDENTIFY succeeded through SAT. This confirms command pass-through, not drive health."
             )

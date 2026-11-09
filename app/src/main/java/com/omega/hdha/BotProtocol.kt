@@ -24,7 +24,7 @@ object BotProtocol {
         val capacityBytes: Long
     )
 
-    data class AtaIdentifyData(val serialNumber: String, val firmware: String, val model: String, val smartSupported: Boolean, val smartEnabled: Boolean, val lba48Supported: Boolean, val rotationRateRpm: Int?)
+    data class AtaIdentifyData(val serialNumber: String, val firmware: String, val model: String, val smartSupported: Boolean, val smartEnabled: Boolean, val lba48Supported: Boolean, val nonRotatingMedia: Boolean, val rotationRateRpm: Int?)
 
     data class InquiryData(
         val peripheralDeviceType: Int,
@@ -85,7 +85,9 @@ object BotProtocol {
             }
             return chars.toString().trim { it <= ' ' || it == '\u0000' }
         }
-        val rotation = word(217).let { if (it in 1..0xFFFE) it else null }
+        val rotationWord = word(217)
+        val nonRotating = rotationWord == 1
+        val rotation = rotationWord.let { if (it in 2..0xFFFE) it else null }
         return AtaIdentifyData(
             serialNumber = ataString(10, 10),
             firmware = ataString(23, 4),
@@ -93,6 +95,7 @@ object BotProtocol {
             smartSupported = (word(82) and 1) != 0,
             smartEnabled = (word(85) and 1) != 0,
             lba48Supported = (word(83) and 0x0400) != 0,
+            nonRotatingMedia = nonRotating,
             rotationRateRpm = rotation
         )
     }

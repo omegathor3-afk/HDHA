@@ -50,7 +50,7 @@ object BotProtocol {
     /** ATA PASS-THROUGH(16), PIO data-in, one 512-byte IDENTIFY DEVICE block. */
     fun buildAtaIdentifyDeviceCdb(): ByteArray = ByteArray(16).apply {
         this[0] = 0x85.toByte()
-        this[1] = 0x88.toByte()
+        this[1] = 0x09.toByte()
         this[2] = 0x0E.toByte()
         this[6] = 1
         this[14] = 0xEC.toByte()

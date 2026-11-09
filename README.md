@@ -25,3 +25,10 @@ Android app for inspecting HDDs and SSDs connected through USB OTG.
 Requires JDK 17 and Android SDK Platform 35. Run: gradle testDebugUnitTest assembleDebug
 
 See docs/ARCHITECTURE.md and docs/DEVICE_VALIDATION.md.
+
+## HDHA estimated health percentage
+- The dashboard shows an **HDHA estimate** only when SMART RETURN STATUS is explicitly clear and at least two supported normalized health attributes (IDs 5, 10, 187, 188, 196, 197, 198) have valid threshold entries.
+- The estimate is a weighted summary of normalized current values, with greater weights for reallocated, pending and uncorrectable-sector indicators. It is not a manufacturer rating, remaining-lifespan percentage, or probability of failure.
+- If SMART status is unknown, a drive-level threshold is exceeded, a supported attribute reaches its threshold, or evidence is insufficient, no percentage is shown; the app displays the reason instead.
+- Confidence is labelled Limited for two or three supported indicators and Moderate for four or more. The app does not interpret vendor-specific raw bytes to manufacture a score.
+- Historical scans show the change in estimate only when both samples contain a valid percentage for the same device identity. A clean score never guarantees future reliability; maintain independent backups.

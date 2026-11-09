@@ -258,26 +258,34 @@ private fun HdhaScreen(
                                         .sortedBy { it.capturedAtMillis }
                                     val latestSample = matchingSamples.lastOrNull()
                                     val previousSample = matchingSamples.dropLast(1).lastOrNull()
-                                    if (latestSample != null) {
-                                        val health = SmartHealthEstimator.assess(latestSample)
-                                        Card(modifier = Modifier.fillMaxWidth()) {
-                                            Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                                                Text("Estimated drive health", style = MaterialTheme.typography.titleMedium)
-                                                Text(health.percentage?.let { "$it% · ${health.label}" } ?: health.label,
-                                                    style = MaterialTheme.typography.headlineSmall)
-                                                Text("Confidence: ${health.confidence} · Evidence: ${health.evidenceCount} attributes",
-                                                    style = MaterialTheme.typography.bodySmall)
-                                                Text(health.explanation, style = MaterialTheme.typography.bodySmall)
-                                                val previousHealth = previousSample?.let(SmartHealthEstimator::assess)
-                                                if (health.percentage != null && previousHealth?.percentage != null) {
-                                                    val delta = health.percentage - previousHealth.percentage
-                                                    Text("Since previous saved scan: ${if (delta > 0) "+" else ""}$delta percentage points",
-                                                        style = MaterialTheme.typography.bodySmall)
+                                    Card(modifier = Modifier.fillMaxWidth()) {
+                                        Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                            Text("SMART health signals", style = MaterialTheme.typography.titleMedium)
+                                            when {
+                                                !smart.success -> {
+                                                    Text("Health status unavailable", style = MaterialTheme.typography.titleSmall)
+                                                    Text("No valid SMART snapshot was obtained. Device identity or USB detection alone cannot establish drive health.", style = MaterialTheme.typography.bodySmall)
                                                 }
-                                                Text("This is an HDHA estimate, not an official manufacturer rating or failure prediction.",
-                                                    style = MaterialTheme.typography.bodySmall)
+                                                latestSample == null -> {
+                                                    Text("SMART snapshot not saved", style = MaterialTheme.typography.titleSmall)
+                                                    Text("SMART data was returned, but HDHA could not match it to a saved drive record. No health verdict is shown.", style = MaterialTheme.typography.bodySmall)
+                                                }
+                                                else -> {
+                                                    val health = SmartHealthEstimator.assess(latestSample)
+                                                    Text(health.label, style = MaterialTheme.typography.titleSmall)
+                                                    Text("SMART status: " + when (latestSample.thresholdExceeded) {
+                                                        true -> "threshold exceeded"
+                                                        false -> "no threshold exceeded"
+                                                        null -> "unknown"
+                                                    }, style = MaterialTheme.typography.bodySmall)
+                                                    Text("Relevant normalized attributes with thresholds: ${health.evidenceCount}", style = MaterialTheme.typography.bodySmall)
+                                                    Text(health.explanation, style = MaterialTheme.typography.bodySmall)
+                                                    Text("No overall health percentage is calculated. SMART cannot guarantee that a drive will not fail.", style = MaterialTheme.typography.bodySmall)
+                                                }
                                             }
                                         }
+                                    }
+                                    if (latestSample != null) {
                                         SmartTrendAnalyzer.compare(previousSample, latestSample).forEach { alert ->
                                             Text("[${alert.severity}] ${alert.message}", style = MaterialTheme.typography.bodySmall)
                                         }

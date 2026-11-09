@@ -57,7 +57,7 @@ class BotProtocolTest {
         response[1] = 0x80.toByte()
         response[4] = 31
         "SEAGATE ".toByteArray().copyInto(response, 8)
-        "Expansion Desk   ".toByteArray().copyInto(response, 16)
+        "Expansion Desk  ".toByteArray().copyInto(response, 16)
         "1234".toByteArray().copyInto(response, 32)
         val parsed = BotProtocol.parseInquiry(response)
         assertEquals("SEAGATE", parsed.vendor)

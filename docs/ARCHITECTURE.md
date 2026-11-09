@@ -32,9 +32,16 @@ USB descriptors do not prove that a bridge supports SAT or passes ATA commands. 
 5. Permission denial, disconnect and timeout must release resources safely.
 6. Do not infer SMART health from SCSI INQUIRY or ATA IDENTIFY identity data.
 
+## Profiles, history and reporting
+- Attribute labels are held in an extensible registry with generic and vendor-family fallbacks. Model-specific profiles can be added without changing the SMART wire parser.
+- Raw six-byte ATA attribute values remain hexadecimal unless a verified model-specific decoder is supplied. Current/worst normalized values and thresholds are kept separate.
+- Successful snapshots are stored locally in app-private SharedPreferences as bounded JSON history (maximum 500 samples); there is no cloud transfer.
+- Trend analysis compares normalized values only where the profile declares a direction. Unknown raw changes are informational; threshold crossings and SMART RETURN STATUS failures are elevated conservatively.
+- Plain-text report export uses Android's share sheet. Reports include identity, profile, attributes, status, alerts and limitations.
+
 ## Milestones
 1. USB discovery, permission and descriptor classification — implemented.
 2. Read-only BOT transport and SCSI INQUIRY — implemented; physical validation pending.
 3. SAT probe and read-only ATA IDENTIFY DEVICE — implemented; physical validation pending.
 4. SMART data retrieval and conservative raw interpretation — implemented; physical validation pending.
-5. Local-only health history and export — future work.
+5. Local-only SMART history, conservative comparisons and plain-text report export — implemented; physical validation pending.

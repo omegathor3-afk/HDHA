@@ -40,10 +40,14 @@ class MainActivity : ComponentActivity() {
     private var inquiryResults by mutableStateOf<Map<String, UsbBotTransport.InquiryResult>>(emptyMap())
     private var ataResults by mutableStateOf<Map<String, UsbBotTransport.AtaIdentifyResult>>(emptyMap())
     private var smartResults by mutableStateOf<Map<String, UsbBotTransport.SmartResult>>(emptyMap())
+    private lateinit var historyStore: SmartHistoryStore
+    private var historySamples by mutableStateOf(emptyList<SmartSample>())
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         usbManager = getSystemService(Context.USB_SERVICE) as UsbManager
+        historyStore = SmartHistoryStore(applicationContext)
+        historySamples = historyStore.readAll()
         setContent {
             MaterialTheme {
                 HdhaScreen(
@@ -51,12 +55,14 @@ class MainActivity : ComponentActivity() {
                     inquiryResults = inquiryResults,
                     ataResults = ataResults,
                     smartResults = smartResults,
+                    historySamples = historySamples,
                     hasPermission = { name -> usbManager.deviceList[name]?.let(usbManager::hasPermission) == true },
                     onRefresh = ::refreshDevices,
                     onRequestPermission = ::requestUsbPermission,
                     onRunInquiry = ::runInquiry,
                     onRunAtaIdentify = ::runAtaIdentify,
-                    onRunSmart = ::runSmart
+                    onRunSmart = ::runSmart,
+                    onExportReport = ::exportReport
                 )
             }
         }
@@ -106,7 +112,29 @@ class MainActivity : ComponentActivity() {
         lifecycleScope.launch {
             val result = withContext(Dispatchers.IO) { UsbBotTransport.readSmart(usbManager, device) }
             smartResults = smartResults + (deviceName to result)
+            if (result.success) {
+                val candidate = devices.firstOrNull { it.deviceName == deviceName }
+                val identify = ataResults[deviceName]
+                val vendor = inquiryResults[deviceName]?.vendor.orEmpty().ifBlank { candidate?.manufacturer.orEmpty() }
+                val model = identify?.model.orEmpty().ifBlank { candidate?.product.orEmpty() }
+                val serial = identify?.serialNumber.orEmpty()
+                val key = serial.ifBlank { (candidate?.vendorId.toString() + ":" + candidate?.productId + ":" + model) }
+                val profile = SmartAttributeProfiles.resolve(vendor, model)
+                val sample = SmartSample(System.currentTimeMillis(), key, vendor, model, serial, profile.key,
+                    result.thresholdExceeded, result.attributes, result.thresholds)
+                historySamples = withContext(Dispatchers.IO) { historyStore.append(sample) }
+            }
         }
+    }
+
+    private fun exportReport() {
+        val report = historyStore.report(historySamples)
+        val intent = Intent(Intent.ACTION_SEND).apply {
+            type = "text/plain"
+            putExtra(Intent.EXTRA_SUBJECT, "HDHA SMART drive report")
+            putExtra(Intent.EXTRA_TEXT, report)
+        }
+        startActivity(Intent.createChooser(intent, "Export SMART report"))
     }
 
 }
@@ -118,12 +146,14 @@ private fun HdhaScreen(
     inquiryResults: Map<String, UsbBotTransport.InquiryResult>,
     ataResults: Map<String, UsbBotTransport.AtaIdentifyResult>,
     smartResults: Map<String, UsbBotTransport.SmartResult>,
+    historySamples: List<SmartSample>,
     hasPermission: (String) -> Boolean,
     onRefresh: () -> Unit,
     onRequestPermission: (String) -> Unit,
     onRunInquiry: (String) -> Unit,
     onRunAtaIdentify: (String) -> Unit,
-    onRunSmart: (String) -> Unit
+    onRunSmart: (String) -> Unit,
+    onExportReport: () -> Unit
 ) {
     Scaffold(topBar = { TopAppBar(title = { Text("HDHA · Drive Inspector") }) }) { padding ->
         Column(
@@ -133,6 +163,8 @@ private fun HdhaScreen(
             Text("USB device discovery", style = MaterialTheme.typography.headlineSmall)
             Text("SCSI INQUIRY and SAT ATA IDENTIFY are read-only. SMART reads run only when the drive reports SMART supported and enabled.")
             Button(onClick = onRefresh) { Text("Refresh connected devices") }
+            Text("Saved SMART samples: ${historySamples.size}")
+            Button(onClick = onExportReport, enabled = historySamples.isNotEmpty()) { Text("Export SMART report") }
             if (devices.isEmpty()) {
                 Text("No USB devices detected. Connect a drive using OTG, then refresh.")
             } else {
@@ -205,15 +237,33 @@ private fun HdhaScreen(
                                             }
                                         )
                                         Text("Attributes: ${smart.attributes.size} · Threshold entries: ${smart.thresholds.size}")
-                                        smart.attributes.forEach { attribute ->
+                                        val smartProfile = SmartAttributeProfiles.resolve(
+                                        inquiryResults[device.deviceName]?.vendor.orEmpty(),
+                                        ataResults[device.deviceName]?.model.orEmpty()
+                                    )
+                                    smart.attributes.forEach { attribute ->
                                             val threshold = smart.thresholds[attribute.id]
+                                            val label = SmartAttributeProfiles.describe(smartProfile, attribute.id).label
                                             Text(
-                                                "ID ${attribute.id} · Current ${attribute.current} · Worst ${attribute.worst} · Threshold ${threshold ?: "N/A"} · Raw ${attribute.rawValueHex}",
+                                                "$label (ID ${attribute.id}) · Current ${attribute.current} · Worst ${attribute.worst} · Threshold ${threshold ?: "N/A"} · Raw ${attribute.rawValueHex}",
                                                 style = MaterialTheme.typography.bodySmall
                                             )
                                         }
                                     }
                                     Text(smart.message, style = MaterialTheme.typography.bodySmall)
+                                    val historyAta = ataResults[device.deviceName]
+                                    val historyKey = historyAta?.serialNumber?.takeIf { it.isNotBlank() }
+                                        ?: (device.vendorId.toString() + ":" + device.productId + ":" + historyAta?.model.orEmpty().ifBlank { device.product })
+                                    val matchingSamples = historySamples.filter { it.deviceKey == historyKey }
+                                        .sortedBy { it.capturedAtMillis }
+                                    val latestSample = matchingSamples.lastOrNull()
+                                    val previousSample = matchingSamples.dropLast(1).lastOrNull()
+                                    if (latestSample != null) {
+                                        SmartTrendAnalyzer.compare(previousSample, latestSample).forEach { alert ->
+                                            Text("[${alert.severity}] ${alert.message}", style = MaterialTheme.typography.bodySmall)
+                                        }
+                                    }
+                                    Text("SMART history is saved locally on this device.", style = MaterialTheme.typography.bodySmall)
                                 }
                                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                                     Button(

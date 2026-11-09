@@ -14,6 +14,13 @@ Android app for inspecting HDDs and SSDs connected through USB OTG.
 - SAT failure is indeterminate and does not prove the drive is unhealthy or that every bridge lacks SAT.
 - Missing SMART access must be reported as Unsupported / unavailable, never Healthy.
 
+## SMART profiles, history and reports
+- Attribute labels are selected from an extensible vendor/model profile registry, with a conservative generic fallback for unknown devices.
+- Six-byte vendor raw values remain hexadecimal; the app does not guess units or convert them to sector counts, hours or temperatures without a verified model-specific decoder.
+- Successful SMART reads are stored locally in app-private preferences (up to 500 samples). No account, cloud sync or network upload is used.
+- Comparisons report only profile-backed normalized-value direction changes and threshold crossings. Unknown raw-value changes are informational, not health verdicts.
+- Export creates a plain-text report through Android's share sheet, including device identity, attributes, history context, alerts and interpretation limits.
+
 ## Build
 Requires JDK 17 and Android SDK Platform 35. Run: gradle testDebugUnitTest assembleDebug
 

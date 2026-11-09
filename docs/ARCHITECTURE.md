@@ -14,6 +14,12 @@ HDHA diagnoses external HDDs and SSDs connected to Android through USB OTG. The 
 - Future SMART: SMART READ DATA, SMART READ THRESHOLDS, SMART RETURN STATUS and logs. Preserve raw bytes; do not assume vendor-specific raw attributes have universal meaning.
 - Future history: local-only snapshots and export.
 
+## SAT / ATA IDENTIFY safeguards and limitations
+- SAT is probed only through the SCSI-transparent BOT interface using ATA PASS-THROUGH(12).
+- The only ATA command sent in this milestone is IDENTIFY DEVICE (0xEC), with a 512-byte data-in transfer. No SMART feature subcommands, user-sector reads, or writes are sent.
+- SAT is reported as supported only when the bridge returns a valid BOT success status and a structurally valid 512-byte ATA IDENTIFY block. A rejected command means SAT was not confirmed, not that the drive is unhealthy.
+- ATA strings are byte-swapped per ATA word. Capacity is derived from LBA48 words only when word 83 advertises LBA48; otherwise LBA28 words are used.
+
 ## BOT safeguards and limitations
 - SCSI INQUIRY and ATA IDENTIFY DEVICE are the only commands sent. ATA IDENTIFY reads the drive's 512-byte identification block and does not modify media. SMART attributes are not read in this milestone.
 - The app requires USB permission and a SCSI-transparent BOT interface with Bulk IN and Bulk OUT endpoints.
@@ -36,5 +42,5 @@ USB descriptors only advertise an interface and transport protocol. They do not 
 1. USB discovery, permission and descriptor classification (complete).
 2. Read-only BOT transport and SCSI INQUIRY (implemented; hardware validation pending).
 3. SAT probing and read-only ATA IDENTIFY DEVICE (implemented; hardware validation pending). SMART data commands remain future work.
-4. SMART interpretation and history.
-5. Optional bounded read-only surface scan with cancellation and power warnings.
+5. SMART interpretation and history.
+6. Optional bounded read-only surface scan with cancellation and power warnings.

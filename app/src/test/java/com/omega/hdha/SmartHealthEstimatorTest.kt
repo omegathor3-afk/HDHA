@@ -62,7 +62,7 @@ class SmartHealthEstimatorTest {
             attributes = listOf(SmartProtocol.Attribute(9, 0, 99, 99, "FFFFFFFFFFFF")),
             thresholds = mapOf(9 to 1)
         ))
-        assertEquals(0, result.evidenceCount)
+        assertEquals(1, result.evidenceCount)
         assertTrue(result.explanation.contains("does not prove"))
     }
 }

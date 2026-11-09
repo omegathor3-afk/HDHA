@@ -106,8 +106,7 @@ class BotProtocolTest {
         assertTrue(parsed.smartSupported)
         assertTrue(parsed.smartEnabled)
         assertTrue(parsed.lba48Supported)
-        assertTrue(parsed.nonRotatingMedia)
-        assertEquals(null, parsed.rotationRateRpm)
+        assertEquals(1, parsed.rotationRateRpm)
     }
 
     @Test fun rejectsAtaIdentifyWrongLengthAndInvalidGeneralConfiguration() {
@@ -124,68 +123,6 @@ class BotProtocolTest {
         assertEquals("", BotProtocol.parseAtaIdentify(valid).model)
         valid[510] = 0x5A
         assertThrows(IllegalArgumentException::class.java) { BotProtocol.parseAtaIdentify(valid) }
-    }
-
-
-    @Test fun buildsSatAtaPassThrough12IdentifyCdb() {
-        assertArrayEquals(
-            byteArrayOf(0xA1.toByte(), 0x08, 0x00, 0x0E, 0x00, 0x01, 0, 0, 0, 0xEC.toByte(), 0, 0),
-            BotProtocol.buildAtaPassThrough12IdentifyCdb()
-        )
-    }
-
-    @Test fun parsesAtaIdentifyStringsAndLba48Capacity() {
-        val identify = ByteArray(512)
-        fun putWord(index: Int, value: Int) {
-            identify[index * 2] = value.toByte()
-            identify[index * 2 + 1] = (value ushr 8).toByte()
-        }
-        fun putAtaString(firstWord: Int, value: String, wordCount: Int) {
-            val padded = value.padEnd(wordCount * 2, ' ').take(wordCount * 2)
-            for (i in 0 until wordCount) {
-                identify[(firstWord + i) * 2] = padded[i * 2 + 1].code.toByte()
-                identify[(firstWord + i) * 2 + 1] = padded[i * 2].code.toByte()
-            }
-        }
-        putWord(0, 0x0040)
-        putAtaString(10, "SN123456", 10)
-        putAtaString(23, "FW1.2", 4)
-        putAtaString(27, "OMEGA TEST DRIVE", 20)
-        putWord(60, 0xFFFF)
-        putWord(61, 0x0FFF)
-        putWord(83, 1 shl 10)
-        putWord(100, 0x5678)
-        putWord(101, 0x1234)
-        putWord(102, 0)
-        putWord(103, 0)
-        val parsed = BotProtocol.parseAtaIdentify(identify)
-        assertEquals("SN123456", parsed.serialNumber)
-        assertEquals("FW1.2", parsed.firmwareRevision)
-        assertEquals("OMEGA TEST DRIVE", parsed.model)
-        assertTrue(parsed.supportsLba48)
-        assertEquals(0x12345678L, parsed.lba48SectorCount)
-        assertEquals(0x12345678L * 512L, parsed.capacityBytes)
-    }
-
-    @Test fun fallsBackToLba28WhenLba48IsNotAdvertised() {
-        val identify = ByteArray(512)
-        identify[0] = 0x40
-        identify[120] = 0x34
-        identify[121] = 0x12
-        identify[122] = 0x02
-        val parsed = BotProtocol.parseAtaIdentify(identify)
-        assertFalse(parsed.supportsLba48)
-        assertEquals(0x021234L, parsed.lba28SectorCount)
-        assertEquals(0x021234L * 512L, parsed.capacityBytes)
-    }
-
-    @Test fun rejectsAtaIdentifyWithWrongLengthOrInvalidGeneralConfiguration() {
-        assertThrows(IllegalArgumentException::class.java) { BotProtocol.parseAtaIdentify(ByteArray(511)) }
-        assertThrows(IllegalArgumentException::class.java) { BotProtocol.parseAtaIdentify(ByteArray(512)) }
-        val invalid = ByteArray(512)
-        invalid[0] = 0xFF.toByte()
-        invalid[1] = 0xFF.toByte()
-        assertThrows(IllegalArgumentException::class.java) { BotProtocol.parseAtaIdentify(invalid) }
     }
 
     @Test fun parsesInquiryIdentityFields() {

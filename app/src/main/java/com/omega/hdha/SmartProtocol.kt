@@ -124,14 +124,15 @@ object SmartProtocol {
                 val error = u8(sense[offset + 3])
                 val lbaMid = u8(sense[offset + 9])
                 val lbaHigh = u8(sense[offset + 11])
-                val thresholdExceeded = when {
+                val ataStatus = u8(sense[offset + 13])
+                val thresholdExceeded = if (error != 0 || (ataStatus and 0x01) != 0) null else when {
                     lbaMid == 0x4F && lbaHigh == 0xC2 -> false
                     lbaMid == 0xF4 && lbaHigh == 0x2C -> true
                     else -> null
                 }
                 return AtaReturnStatus(
                     error = error,
-                    status = u8(sense[offset + 13]),
+                    status = ataStatus,
                     lbaMid = lbaMid,
                     lbaHigh = lbaHigh,
                     thresholdExceeded = thresholdExceeded

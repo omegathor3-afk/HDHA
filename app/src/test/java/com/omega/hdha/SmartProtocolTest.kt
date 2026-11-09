@@ -136,6 +136,23 @@ class SmartProtocolTest {
         assertNull(parsed.thresholdExceeded)
     }
 
+    @Test fun ataErrorOrErrorStatusBitPreventsPassVerdict() {
+        val errorRegister = returnSense(0x4F, 0xC2).apply { this[11] = 4 }
+        assertNull(SmartProtocol.parseAtaReturnDescriptor(errorRegister).thresholdExceeded)
+        val errorStatus = returnSense(0x4F, 0xC2).apply { this[21] = 0x51 }
+        assertNull(SmartProtocol.parseAtaReturnDescriptor(errorStatus).thresholdExceeded)
+    }
+
+    @Test fun noDataBotCommandUsesZeroTransferLengthAndNoDirectionFlag() {
+        val cbw = BotProtocol.buildCbw(9, 0, SmartProtocol.buildReturnStatusCdb(), dataIn = false)
+        assertEquals(31, cbw.size)
+        assertEquals(0, cbw[8].toInt())
+        assertEquals(0, cbw[9].toInt())
+        assertEquals(0, cbw[10].toInt())
+        assertEquals(0, cbw[11].toInt())
+        assertEquals(0, cbw[12].toInt())
+    }
+
     @Test fun rejectsMissingMalformedAndTruncatedAtaReturnDescriptors() {
         val noDescriptor = ByteArray(8).apply { this[0] = 0x72; this[7] = 0 }
         assertThrows(IllegalArgumentException::class.java) { SmartProtocol.parseAtaReturnDescriptor(noDescriptor) }

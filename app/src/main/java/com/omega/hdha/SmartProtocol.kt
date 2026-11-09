@@ -46,7 +46,7 @@ object SmartProtocol {
         val hasData = dataIn
         val cdb = ByteArray(16)
         cdb[0] = 0x85.toByte() // ATA PASS-THROUGH(16)
-        cdb[1] = if (hasData) 0x09 else 0x07 // EXTEND=1; PIO Data-In or Non-Data protocol
+        cdb[1] = (if (hasData) 0x09 else 0x07).toByte() // EXTEND=1; PIO Data-In or Non-Data protocol
         cdb[2] = when {
             ckCond -> 0x20 // CK_COND=1; no ATA data transfer
             hasData -> 0x0E // T_DIR=IN, BYT_BLOK=1, T_LENGTH=sector count
@@ -55,7 +55,7 @@ object SmartProtocol {
         cdb[3] = 0 // FEATURES high
         cdb[4] = feature.toByte()
         cdb[5] = 0 // SECTOR_COUNT high
-        cdb[6] = if (hasData) 1 else 0
+        cdb[6] = (if (hasData) 1 else 0).toByte()
         cdb[7] = 0 // LBA low high
         cdb[8] = 0x4F // SMART signature, LBA low
         cdb[9] = 0 // LBA mid high

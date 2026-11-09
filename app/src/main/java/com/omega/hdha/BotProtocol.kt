@@ -55,7 +55,7 @@ object BotProtocol {
             putInt(CBW_SIGNATURE)
             putInt(tag.toInt())
             putInt(transferLength.toInt())
-            put(if (transferLength == 0L) 0 else if (dataIn) 0x80 else 0) // BOT direction; zero for no-data commands
+            put((if (transferLength == 0L) 0 else if (dataIn) 0x80 else 0).toByte()) // BOT direction; zero for no-data commands
             put(lun.toByte())
             put(cdb.size.toByte())
             put(cdb)

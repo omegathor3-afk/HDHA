@@ -30,6 +30,10 @@ object SmartHealthEstimator {
             Triple(attribute.current, weight, attribute.id)
         }.distinctBy { it.third }
 
+        if (evidence.any { it.first <= (sample.thresholds[it.third] ?: Int.MIN_VALUE) }) {
+            return SmartHealthAssessment(null, "Critical attribute threshold", "High", evidence.size,
+                "At least one supported normalized attribute is at or below its SMART threshold. Back up important data.")
+        }
         if (evidence.size < 2) {
             return SmartHealthAssessment(null, "Insufficient data", "None", evidence.size,
                 "At least two supported normalized health attributes with valid thresholds are required.")

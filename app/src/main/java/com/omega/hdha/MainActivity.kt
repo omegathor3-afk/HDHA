@@ -223,6 +223,15 @@ private fun HdhaScreen(
                                     Text(ata.message, style = MaterialTheme.typography.bodySmall)
                                 }
                                 val smart = smartResults[device.deviceName]
+                                if (smart == null) {
+                                    Card(modifier = Modifier.fillMaxWidth()) {
+                                        Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                            Text("SMART health signals", style = MaterialTheme.typography.titleMedium)
+                                            Text("Not measured yet", style = MaterialTheme.typography.titleSmall)
+                                            Text("Connect the drive, grant USB access, then run Read SMART data and status. USB detection and device identity do not reveal drive health.", style = MaterialTheme.typography.bodySmall)
+                                        }
+                                    }
+                                }
                                 if (smart != null) {
                                     Text(
                                         if (smart.success) "SMART: data retrieved" else "SMART: unavailable",

@@ -337,15 +337,15 @@ private fun HdhaScreen(
                                     }
                                     Button(
                                         onClick = { onRunInquiry(device.deviceName) },
-                                        enabled = hasPermission(device.deviceName)
+                                        enabled = true
                                     ) { Text("Read device identity") }
                                     Button(
                                         onClick = { onRunAtaIdentify(device.deviceName) },
-                                        enabled = hasPermission(device.deviceName)
+                                        enabled = true
                                     ) { Text("Probe SAT / Identify ATA") }
                                     Button(
                                         onClick = { onRunSmart(device.deviceName) },
-                                        enabled = hasPermission(device.deviceName)
+                                        enabled = true
                                     ) { Text("Read SMART data and status") }
                                 }
                             }

@@ -122,8 +122,8 @@ object SmartProtocol {
             if (code == 0x09) {
                 require(length == 0x0C) { "ATA Return Descriptor must contain 12 payload bytes" }
                 val error = u8(sense[offset + 3])
-                val lbaMid = u8(sense[offset + 9])
-                val lbaHigh = u8(sense[offset + 11])
+                val lbaMid = u8(sense[offset + 8])
+                val lbaHigh = u8(sense[offset + 10])
                 val ataStatus = u8(sense[offset + 13])
                 val thresholdExceeded = if (error != 0 || (ataStatus and 0x01) != 0) null else when {
                     lbaMid == 0x4F && lbaHigh == 0xC2 -> false

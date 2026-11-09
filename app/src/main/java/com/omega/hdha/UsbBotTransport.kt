@@ -251,7 +251,46 @@ object UsbBotTransport {
 
         val data = ByteArray(expectedLength)
         val dataRead = connection.bulkTransfer(bulkIn, data, data.size, TRANSFER_TIMEOUT_MS)
-        check(dataRead > 0 && dataRead <= expectedLength) { "BOT data stage failed or returned no bytes ($dataRead)." }
+        if (dataRead <= 0) {
+            // A failed ATA/SCSI data command may STALL the Bulk-IN endpoint.
+            // BOT requires clearing that halt before attempting to fetch the CSW.
+            val clearResult = try {
+                connection.controlTransfer(
+                    0x02, // host-to-device, standard, endpoint recipient
+                    0x01, // CLEAR_FEATURE
+                    0x0000, // ENDPOINT_HALT
+                    bulkIn.address,
+                    ByteArray(0),
+                    0,
+                    0,
+                    TRANSFER_TIMEOUT_MS
+                )
+            } catch (_: Exception) { -1 }
+            val failedCswBytes = ByteArray(BotProtocol.CSW_LENGTH)
+            val failedCswRead = connection.bulkTransfer(
+                bulkIn, failedCswBytes, failedCswBytes.size, TRANSFER_TIMEOUT_MS
+            )
+            if (failedCswRead == BotProtocol.CSW_LENGTH) {
+                val failedCsw = try {
+                    BotProtocol.parseCsw(
+                        failedCswBytes, expectedTag = tag,
+                        expectedTransferLength = expectedLength.toLong()
+                    )
+                } catch (e: Exception) {
+                    throw IllegalStateException(
+                        "BOT data stage returned $dataRead; endpoint halt clear=$clearResult; CSW was malformed: ${e.message}",
+                        e
+                    )
+                }
+                throw IllegalStateException(
+                    "USB bridge rejected the ATA/SCSI data command: data stage=$dataRead, CSW status=${failedCsw.status}, residue=${failedCsw.residue}/$expectedLength. Endpoint halt clear=$clearResult. SMART support in IDENTIFY does not guarantee this SMART command is passed through."
+                )
+            }
+            throw IllegalStateException(
+                "BOT data stage returned $dataRead and no CSW was received (CSW transfer=$failedCswRead, endpoint halt clear=$clearResult). The USB bridge may have stalled or timed out the ATA/SCSI command."
+            )
+        }
+        check(dataRead <= expectedLength) { "BOT data stage exceeded the requested length ($dataRead/$expectedLength)." }
         if (!allowShort) check(dataRead == expectedLength) {
             "BOT data stage incomplete ($dataRead/$expectedLength bytes)."
         }

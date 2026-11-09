@@ -104,8 +104,9 @@ object SmartTrendAnalyzer {
                 "SMART RETURN STATUS is unknown; no overall health verdict is available.")
             false -> Unit
         }
+        val hasMatchingPrevious = previous?.deviceKey == current.deviceKey
         val prior = previous
-            ?.takeIf { it.deviceKey == current.deviceKey }
+            ?.takeIf { hasMatchingPrevious }
             ?.attributes
             ?.associateBy { it.id }
             .orEmpty()
@@ -134,7 +135,7 @@ object SmartTrendAnalyzer {
                     "${definition.label}: raw vendor bytes changed; trend direction is unknown.")
             }
         }
-        if (previous == null && current.thresholdExceeded != true && alerts.none { it.severity == AlertSeverity.CRITICAL }) {
+        if (!hasMatchingPrevious && current.thresholdExceeded != true && alerts.none { it.severity == AlertSeverity.CRITICAL }) {
             alerts += SmartAlert(null, AlertSeverity.INFO,
                 "First saved sample: future comparisons will establish a baseline; no trend is inferred yet.")
         }

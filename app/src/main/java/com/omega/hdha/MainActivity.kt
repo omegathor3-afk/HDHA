@@ -83,6 +83,7 @@ class MainActivity : ComponentActivity() {
                     onRunInquiry = ::runInquiry,
                     onRunAtaIdentify = ::runAtaIdentify,
                     onRunSmart = ::runSmart,
+                    onRunFullScan = ::runFullScan,
                     onExportReport = ::exportReport,
                     onCopy = ::copyText
                 )
@@ -161,6 +162,32 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    private fun runFullScan(deviceName: String) {
+        val device = usbManager.deviceList[deviceName] ?: return
+        inquiryResults = inquiryResults - deviceName
+        ataResults = ataResults - deviceName
+        smartResults = smartResults - deviceName
+        lifecycleScope.launch {
+            val inquiry = withContext(Dispatchers.IO) { UsbBotTransport.inquiry(usbManager, device) }
+            inquiryResults = inquiryResults + (deviceName to inquiry)
+            val identify = withContext(Dispatchers.IO) { UsbBotTransport.identifyAta(usbManager, device) }
+            ataResults = ataResults + (deviceName to identify)
+            val smart = withContext(Dispatchers.IO) { UsbBotTransport.readSmart(usbManager, device) }
+            smartResults = smartResults + (deviceName to smart)
+            if (smart.success) {
+                val candidate = devices.firstOrNull { it.deviceName == deviceName }
+                val vendor = inquiry.vendor.ifBlank { candidate?.manufacturer.orEmpty() }
+                val model = identify.model.ifBlank { candidate?.product.orEmpty() }
+                val serial = identify.serialNumber
+                val key = serial.ifBlank { (candidate?.vendorId.toString() + ":" + candidate?.productId + ":" + model) }
+                val profile = SmartAttributeProfiles.resolve(vendor, model)
+                val sample = SmartSample(System.currentTimeMillis(), key, vendor, model, serial, profile.key,
+                    smart.thresholdExceeded, smart.attributes, smart.thresholds)
+                historySamples = withContext(Dispatchers.IO) { historyStore.append(sample) }
+            }
+        }
+    }
+
     private fun copyText(label: String, text: String) {
         val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
         clipboard.setPrimaryClip(ClipData.newPlainText(label, text))
@@ -193,6 +220,7 @@ private fun HdhaScreen(
     onRunInquiry: (String) -> Unit,
     onRunAtaIdentify: (String) -> Unit,
     onRunSmart: (String) -> Unit,
+    onRunFullScan: (String) -> Unit,
     onExportReport: () -> Unit,
     onCopy: (String, String) -> Unit
 ) {
@@ -214,6 +242,7 @@ private fun HdhaScreen(
                         Card(modifier = Modifier.fillMaxWidth()) {
                             Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                                 Text(device.product, style = MaterialTheme.typography.titleMedium)
+                                Button(onClick = { onRunFullScan(device.deviceName) }) { Text("Run full drive health scan") }
                                 Text(device.manufacturer)
                                 Text("VID: %04X · PID: %04X".format(device.vendorId, device.productId))
                                 Text(if (device.hasMassStorageInterface) "USB Mass Storage interface detected" else "Not identified as USB Mass Storage")

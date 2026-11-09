@@ -161,7 +161,7 @@ private fun HdhaScreen(
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             Text("USB device discovery", style = MaterialTheme.typography.headlineSmall)
-            Text("SCSI INQUIRY and SAT ATA IDENTIFY are read-only. SMART reads run only when the drive reports SMART supported and enabled.")
+            Text("Read-only SATA-over-USB inspection only: this build requires USB Mass Storage BOT plus a bridge that passes SAT ATA commands. UAS, most NVMe bridges, internal phone storage, and many USB enclosures are not supported yet. SMART is shown only when the drive actually returns valid SMART data.")
             Button(onClick = onRefresh) { Text("Refresh connected devices") }
             Text("Saved SMART samples: ${historySamples.size}")
             Button(onClick = onExportReport, enabled = historySamples.isNotEmpty()) { Text("Export SMART report") }

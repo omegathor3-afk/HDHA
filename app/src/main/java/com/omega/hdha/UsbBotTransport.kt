@@ -53,8 +53,8 @@ object UsbBotTransport {
             ?: return inquiryFailure("Android could not open the USB device.")
         var claimed = false
         return try {
-            claimed = connection.claimInterface(candidate, false)
-            check(claimed) { "Could not claim the USB mass-storage interface." }
+            claimed = claimInterfaceWithFallback(connection, candidate)
+            check(claimed) { "Android refused the USB mass-storage interface, including the forced claim attempt. Close any file-manager window using this drive, safely eject it if Android offers that option, reconnect the adapter, and retry." }
             val data = executeReadOnlyDataIn(
                 connection, bulkIn, bulkOut, BotProtocol.buildInquiryCdb(),
                 BotProtocol.INQUIRY_DATA_LENGTH
@@ -94,8 +94,8 @@ object UsbBotTransport {
             ?: return ataFailure(null, "Android could not open the USB device.")
         var claimed = false
         return try {
-            claimed = connection.claimInterface(candidate, false)
-            check(claimed) { "Could not claim the USB mass-storage interface." }
+            claimed = claimInterfaceWithFallback(connection, candidate)
+            check(claimed) { "Android refused the USB mass-storage interface, including the forced claim attempt. Close any file-manager window using this drive, safely eject it if Android offers that option, reconnect the adapter, and retry." }
             val payload = executeReadOnlyDataIn(
                 connection, bulkIn, bulkOut,
                 BotProtocol.buildAtaIdentifyDeviceCdb(),
@@ -158,8 +158,8 @@ object UsbBotTransport {
             ?: return smartFailure("Android could not open the USB device.")
         var claimed = false
         return try {
-            claimed = connection.claimInterface(candidate, false)
-            check(claimed) { "Could not claim the USB mass-storage interface." }
+            claimed = claimInterfaceWithFallback(connection, candidate)
+            check(claimed) { "Android refused the USB mass-storage interface, including the forced claim attempt. Close any file-manager window using this drive, safely eject it if Android offers that option, reconnect the adapter, and retry." }
 
             val rawData = executeReadOnlyDataIn(
                 connection, bulkIn, bulkOut, SmartProtocol.buildReadDataCdb(),
@@ -209,6 +209,29 @@ object UsbBotTransport {
         } finally {
             if (claimed) try { connection.releaseInterface(candidate) } catch (_: Exception) { }
             connection.close()
+        }
+    }
+
+
+    /**
+     * Android may already have the USB storage interface claimed by its own
+     * storage stack. Try the normal claim first, then Android's documented
+     * force option. This does not guarantee the bridge supports SAT.
+     */
+    private fun claimInterfaceWithFallback(
+        connection: UsbDeviceConnection,
+        intf: android.hardware.usb.UsbInterface
+    ): Boolean {
+        val normalClaim = try {
+            connection.claimInterface(intf, false)
+        } catch (_: Exception) {
+            false
+        }
+        if (normalClaim) return true
+        return try {
+            connection.claimInterface(intf, true)
+        } catch (_: Exception) {
+            false
         }
     }
 

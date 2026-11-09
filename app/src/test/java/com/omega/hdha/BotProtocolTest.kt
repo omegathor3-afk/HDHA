@@ -35,7 +35,7 @@ class BotProtocolTest {
 
     @Test fun parsesValidCswAsUnsignedLittleEndianValues() {
         val bytes = ByteBuffer.allocate(13).order(ByteOrder.LITTLE_ENDIAN)
-            .putInt(0x53425355).putInt(0xFEDCBA98.toInt()).putInt(4).put(0).array()
+            .putInt(0x53425355).putInt(0xFEDCBA98.toInt()).putInt(4).put(0.toByte()).array()
         val csw = BotProtocol.parseCsw(bytes)
         assertEquals(0xFEDCBA98L, csw.tag)
         assertEquals(4L, csw.residue)
@@ -47,7 +47,7 @@ class BotProtocolTest {
         val wrongSignature = ByteArray(13)
         assertThrows(IllegalArgumentException::class.java) { BotProtocol.parseCsw(wrongSignature) }
         val invalidStatus = ByteBuffer.allocate(13).order(ByteOrder.LITTLE_ENDIAN)
-            .putInt(0x53425355).putInt(1).putInt(0).put(3).array()
+            .putInt(0x53425355).putInt(1).putInt(0).put(3.toByte()).array()
         assertThrows(IllegalArgumentException::class.java) { BotProtocol.parseCsw(invalidStatus) }
     }
 

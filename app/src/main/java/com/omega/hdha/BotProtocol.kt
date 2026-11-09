@@ -40,7 +40,7 @@ object BotProtocol {
             put(lun.toByte())
             put(cdb.size.toByte())
             put(cdb)
-            repeat(16 - cdb.size) { put(0) }
+            repeat(16 - cdb.size) { put(0.toByte()) }
         }.array()
     }
 

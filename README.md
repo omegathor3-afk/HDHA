@@ -26,9 +26,10 @@ Requires JDK 17 and Android SDK Platform 35. Run: gradle testDebugUnitTest assem
 
 See docs/ARCHITECTURE.md and docs/DEVICE_VALIDATION.md.
 
-## HDHA estimated health percentage
-- The dashboard shows an **HDHA estimate** only when SMART RETURN STATUS is explicitly clear and at least two supported normalized health attributes (IDs 5, 10, 187, 188, 196, 197, 198) have valid threshold entries.
-- The estimate is a weighted summary of normalized current values, with greater weights for reallocated, pending and uncorrectable-sector indicators. It is not a manufacturer rating, remaining-lifespan percentage, or probability of failure.
-- If SMART status is unknown, a drive-level threshold is exceeded, a supported attribute reaches its threshold, or evidence is insufficient, no percentage is shown; the app displays the reason instead.
-- Confidence is labelled Limited for two or three supported indicators and Moderate for four or more. The app does not interpret vendor-specific raw bytes to manufacture a score.
-- Historical scans show the change in estimate only when both samples contain a valid percentage for the same device identity. A clean score never guarantees future reliability; maintain independent backups.
+## Health reporting policy
+- HDHA does not calculate a universal drive-health percentage from ATA normalized SMART values. Those values are vendor/model-defined and are not a common percentage scale.
+- The app always shows a SMART health-signals panel for each detected USB device. If a valid SMART snapshot is not available, it explicitly says health status is unavailable and explains why.
+- A drive-reported SMART threshold failure or a supported normalized attribute reaching its reported threshold is shown as a warning. A SMART "no threshold exceeded" result is not a guarantee of reliability and is never labelled as an overall health score.
+- Raw SMART bytes remain hexadecimal unless a verified model-specific decoder exists. Unknown raw encodings are never converted into guessed counts, hours, temperatures, or percentages.
+- USB discovery, SCSI INQUIRY, and ATA IDENTIFY are device-identification data only; they are not health measurements.
+- Physical compatibility remains unverified until tested with actual phone + OTG adapter + enclosure/bridge + drive hardware and compared against a trusted reference such as smartctl.

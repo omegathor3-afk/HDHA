@@ -223,6 +223,23 @@ private fun HdhaScreen(
                                     Text(ata.message, style = MaterialTheme.typography.bodySmall)
                                 }
                                 val smart = smartResults[device.deviceName]
+                                if (smart == null) {
+                                    Card(modifier = Modifier.fillMaxWidth()) {
+                                        Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                            Text("SMART health status: NOT ASSESSED", style = MaterialTheme.typography.titleMedium)
+                                            Text("No valid SMART scan has been completed for this device in this session. Read device identity, then run 'Read SMART data and status'. USB discovery alone cannot determine drive health.",
+                                                style = MaterialTheme.typography.bodySmall)
+                                        }
+                                    }
+                                } else if (!smart.success) {
+                                    Card(modifier = Modifier.fillMaxWidth()) {
+                                        Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                            Text("SMART health status: UNAVAILABLE", style = MaterialTheme.typography.titleMedium)
+                                            Text("HDHA has no trustworthy health result because SMART data could not be read. This is not a pass and not proof that the drive is failing.",
+                                                style = MaterialTheme.typography.bodySmall)
+                                        }
+                                    }
+                                }
                                 if (smart != null) {
                                     Text(
                                         if (smart.success) "SMART: data retrieved" else "SMART: unavailable",

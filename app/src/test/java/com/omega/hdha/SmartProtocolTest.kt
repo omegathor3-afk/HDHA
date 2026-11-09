@@ -120,7 +120,12 @@ class SmartProtocolTest {
         assertThrows(IllegalArgumentException::class.java) { SmartProtocol.parseReadThresholds(invalid) }
     }
 
-    @Test fun parsesSmartReturnStatusUsingLowLbaBytesNotExpandedBytes() {\n        val sense = returnSense(0x4F, 0xC2).apply { this[17] = 0x11; this[19] = 0x22 }\n        assertFalse(SmartProtocol.parseAtaReturnDescriptor(sense).thresholdExceeded!!)\n    }\n\n    @Test fun parsesSmartReturnStatusPassSignature() {
+    @Test fun parsesSmartReturnStatusUsingLowLbaBytesNotExpandedBytes() {
+        val sense = returnSense(0x4F, 0xC2).apply { this[17] = 0x11; this[19] = 0x22 }
+        assertFalse(SmartProtocol.parseAtaReturnDescriptor(sense).thresholdExceeded!!)
+    }
+
+    @Test fun parsesSmartReturnStatusPassSignature() {
         val parsed = SmartProtocol.parseAtaReturnDescriptor(returnSense(0x4F, 0xC2))
         assertFalse(parsed.thresholdExceeded!!)
         assertEquals(0x50, parsed.status)

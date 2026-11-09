@@ -1,40 +1,40 @@
 # Architecture and engineering decisions
 
 ## Scope
-HDHA diagnoses external HDDs and SSDs connected to Android through USB OTG. The current implementation discovers USB devices, requests permission, classifies Mass Storage interfaces, and can issue a read-only SCSI INQUIRY over USB Bulk-Only Transport (BOT).
+HDHA inspects external HDDs and SSDs connected to Android through USB OTG. It discovers USB devices, classifies Mass Storage interfaces, and performs read-only SCSI INQUIRY and SAT ATA IDENTIFY DEVICE where supported.
 
 ## Layers
-- UI: Jetpack Compose; clearly distinguishes discovery and device identification from actual health tests.
+- UI: Jetpack Compose; clearly separates device discovery, identity and health reporting.
 - USB discovery: Android USB Host API (UsbManager, UsbDevice, UsbInterface, UsbEndpoint).
 - Descriptor classifier: identifies BOT, UAS, CBI/CBB and unknown protocol values; checks SCSI-transparent subclass and Bulk IN/OUT endpoints.
-- BOT transport: claims a matching interface, sends a 31-byte Command Block Wrapper, receives the INQUIRY data phase and validates the 13-byte Command Status Wrapper.
-- SCSI identity: INQUIRY (6-byte CDB, 36-byte allocation) extracts peripheral type, removable flag, vendor, product and revision.
-- SAT probe: ATA PASS-THROUGH(16), PIO data-in, IDENTIFY DEVICE (0xEC), exactly one 512-byte read-only identification block. A validated response confirms the bridge passed this command; failure is indeterminate, not proof SAT is absent.
-- IDENTIFY parser extracts ATA serial, firmware, model, SMART supported/enabled bits, LBA48 support and rotation-rate word. Optional ATA checksum is validated when its 0xA5 signature is present.
-- Future SMART: SMART READ DATA, SMART READ THRESHOLDS, SMART RETURN STATUS and logs. Preserve raw bytes; do not assume vendor-specific raw attributes have universal meaning.
-- Future history: local-only snapshots and export.
+- BOT transport: claims the selected interface, sends a 31-byte CBW, receives the data-in phase and validates the 13-byte CSW, including signature, tag, status and residue.
+- SCSI identity: INQUIRY (6-byte CDB, 36-byte allocation) returns peripheral type, removable flag, vendor, product and revision.
+- SAT probe: ATA PASS-THROUGH(16), PIO data-in, IDENTIFY DEVICE (0xEC), requesting exactly one 512-byte identification block.
+- ATA IDENTIFY parser: decodes serial, firmware, model, SMART supported/enabled bits, LBA48 support and media rotation information. It validates the optional checksum when the 0xA5 signature is present.
+- Future SMART support: SMART READ DATA, SMART READ THRESHOLDS and SMART RETURN STATUS. Preserve raw bytes and do not assume vendor-specific raw attribute values have universal meanings.
 
-## BOT safeguards and limitations
-- SCSI INQUIRY and ATA IDENTIFY DEVICE are the only commands sent. ATA IDENTIFY reads the drive's 512-byte identification block and does not modify media. SMART attributes are not read in this milestone.
-- The app requires USB permission and a SCSI-transparent BOT interface with Bulk IN and Bulk OUT endpoints.
-- CBW/CSW signatures, exact wrapper lengths, command tag, status and data residue are validated. Transfers have bounded timeouts.
-- On failure, timeout, or disconnect, the claimed interface is released and the connection is closed. BOT reset recovery is intentionally not attempted automatically; reconnect the device after a phase error.
-- UAS and CBI/CBB are not implemented. A bridge may expose BOT yet reject SCSI commands.
+## SAT and BOT safeguards
+- A valid ATA IDENTIFY response with BOT command status PASS confirms that this bridge passed the ATA PASS-THROUGH command.
+- A failed or rejected command is indeterminate; it does not prove SAT is unsupported and never means the drive is healthy.
+- Only SCSI INQUIRY and ATA IDENTIFY DEVICE are issued. Neither modifies media or reads user filesystem sectors.
+- USB transfers have bounded timeouts. The interface is released only if successfully claimed, and the connection is closed on completion or failure.
+- BOT reset recovery is not attempted automatically after a phase error; reconnect the drive before retrying.
+- UAS and CBI/CBB are not implemented. Some bridges expose BOT but reject ATA pass-through.
 
-## Critical compatibility boundary
-USB descriptors only advertise an interface and transport protocol. They do not prove that a bridge accepts SCSI commands, supports SAT, or passes ATA SMART commands. A USB-SATA bridge can expose ordinary storage while rejecting SAT commands. Record bridge chipset and firmware compatibility per physical test.
+## Compatibility boundary
+USB descriptors do not prove that a bridge supports SAT or passes ATA commands. Record the USB-SATA bridge chipset, firmware, drive model and phone/adapter combination during physical validation.
 
 ## Safety rules
 1. No filesystem writes, SMART enable/disable changes, destructive write tests, formatting, repair, or sector remapping.
-2. Transport failure means Unsupported/Unavailable, not Healthy.
+2. Transport failure means Unavailable/Not confirmed, never Healthy.
 3. SMART overall PASS does not guarantee future reliability.
 4. Separate raw values, normalized values, source and interpretation.
-5. Disconnect, timeout and permission denial must release resources safely.
-6. Do not infer SMART health from SCSI INQUIRY identity data.
+5. Permission denial, disconnect and timeout must release resources safely.
+6. Do not infer SMART health from SCSI INQUIRY or ATA IDENTIFY identity data.
 
 ## Milestones
-1. USB discovery, permission and descriptor classification (complete).
-2. Read-only BOT transport and SCSI INQUIRY (implemented; hardware validation pending).
-3. SAT probing and read-only ATA IDENTIFY DEVICE (implemented; hardware validation pending). SMART data commands remain future work.
-4. SMART interpretation and history.
-5. Optional bounded read-only surface scan with cancellation and power warnings.
+1. USB discovery, permission and descriptor classification — implemented.
+2. Read-only BOT transport and SCSI INQUIRY — implemented; physical validation pending.
+3. SAT probe and read-only ATA IDENTIFY DEVICE — implemented; physical validation pending.
+4. SMART data retrieval and interpretation — future work.
+5. Local-only health history and export — future work.

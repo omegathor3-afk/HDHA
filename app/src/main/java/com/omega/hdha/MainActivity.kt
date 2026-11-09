@@ -11,7 +11,6 @@ import androidx.activity.compose.setContent
 import androidx.lifecycle.lifecycleScope
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -81,23 +80,21 @@ class MainActivity : ComponentActivity() {
         usbManager.requestPermission(device, permissionIntent)
     }
 
+    private fun runInquiry(deviceName: String) {
+        val device = usbManager.deviceList[deviceName] ?: return
+        inquiryResults = inquiryResults - deviceName
+        lifecycleScope.launch {
+            val result = withContext(Dispatchers.IO) { UsbBotTransport.inquiry(usbManager, device) }
+            inquiryResults = inquiryResults + (deviceName to result)
+        }
+    }
+
     private fun runAtaIdentify(deviceName: String) {
         val device = usbManager.deviceList[deviceName] ?: return
         ataResults = ataResults - deviceName
         lifecycleScope.launch {
             val result = withContext(Dispatchers.IO) { UsbBotTransport.identifyAta(usbManager, device) }
             ataResults = ataResults + (deviceName to result)
-        }
-    }
-
-    private fun runInquiry(deviceName: String) {
-        val device = usbManager.deviceList[deviceName] ?: return
-        inquiryResults = inquiryResults - deviceName
-        lifecycleScope.launch {
-            val result = withContext(Dispatchers.IO) {
-                UsbBotTransport.inquiry(usbManager, device)
-            }
-            inquiryResults = inquiryResults + (deviceName to result)
         }
     }
 }
@@ -141,58 +138,60 @@ private fun HdhaScreen(
                                         Text("Transport: ${profile.transport}")
                                         Text("Bulk IN: ${profile.hasBulkIn} · Bulk OUT: ${profile.hasBulkOut}")
                                         Text(
-                                            if (profile.canAttemptBulkOnlyTransport) "BOT descriptor check: suitable for SCSI INQUIRY"
+                                            if (profile.canAttemptBulkOnlyTransport) "BOT descriptor check: suitable for read-only commands"
                                             else "BOT descriptor check: not suitable"
                                         )
                                         Text(profile.limitation, style = MaterialTheme.typography.bodySmall)
                                     }
-                                    intf.endpoints.forEach { endpoint ->
-                                        Text("  ${endpoint.direction} ${endpoint.type} · endpoint 0x${endpoint.address.toString(16)} · packet ${endpoint.maxPacketSize}")
-                                    }
                                 }
-                                val result = inquiryResults[device.deviceName]
-                                if (result != null) {
-                                    Text(
-                                        if (result.success) "SCSI INQUIRY: device identified"
-                                        else "SCSI INQUIRY: unavailable",
-                                        style = MaterialTheme.typography.titleSmall
-                                    )
-                                    if (result.success) {
-                                        Text("Vendor: ${result.vendor.ifBlank { "Unknown" }}")
-                                        Text("Product: ${result.product.ifBlank { "Unknown" }}")
-                                        Text("Revision: ${result.revision.ifBlank { "Unknown" }}")
-                                        Text("Peripheral type: ${result.peripheralDeviceType}")
-                                        Text("Removable: ${result.removable}")
+                                val inquiry = inquiryResults[device.deviceName]
+                                if (inquiry != null) {
+                                    Text(if (inquiry.success) "SCSI INQUIRY: identified" else "SCSI INQUIRY: unavailable")
+                                    if (inquiry.success) {
+                                        Text("Vendor: ${inquiry.vendor.ifBlank { "Unknown" }}")
+                                        Text("Product: ${inquiry.product.ifBlank { "Unknown" }}")
+                                        Text("Revision: ${inquiry.revision.ifBlank { "Unknown" }}")
+                                        Text("Peripheral type: ${inquiry.peripheralDeviceType}")
+                                        Text("Removable: ${inquiry.removable}")
                                     }
-                                    Text(result.message, style = MaterialTheme.typography.bodySmall)
+                                    Text(inquiry.message, style = MaterialTheme.typography.bodySmall)
                                 }
                                 val ata = ataResults[device.deviceName]
                                 if (ata != null) {
-                                    Text(if (ata.success) "SAT / ATA IDENTIFY: succeeded" else "SAT / ATA IDENTIFY: unavailable")
+                                    Text(
+                                        if (ata.success) "SAT: confirmed" else "SAT: not confirmed",
+                                        style = MaterialTheme.typography.titleSmall
+                                    )
                                     if (ata.success) {
-                                        Text("Drive model: ${ata.model.ifBlank { "Unknown" }}")
-                                        Text("Serial number: ${ata.serialNumber.ifBlank { "Unknown" }}")
+                                        Text("Model: ${ata.model.ifBlank { "Unknown" }}")
+                                        Text("Serial: ${ata.serialNumber.ifBlank { "Unknown" }}")
                                         Text("Firmware: ${ata.firmware.ifBlank { "Unknown" }}")
                                         Text("SMART supported: ${ata.smartSupported} · enabled: ${ata.smartEnabled}")
                                         Text("48-bit LBA: ${ata.lba48Supported}")
-                                        if (ata.capacityBytes > 0) Text("Reported capacity: ${"%.2f".format(ata.capacityBytes / 1_000_000_000.0)} GB")
                                         if (ata.nonRotatingMedia) Text("Media: non-rotating (commonly SSD)")
                                         else ata.rotationRateRpm?.let { Text("Rotation rate: $it RPM") }
                                     }
                                     Text(ata.message, style = MaterialTheme.typography.bodySmall)
                                 }
-                                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                                     Button(
                                         onClick = { onRequestPermission(device.deviceName) },
                                         enabled = !hasPermission(device.deviceName)
-                                    ) { Text(if (hasPermission(device.deviceName)) "Permission granted" else "Request USB access") }
+                                    ) {
+                                        Text(if (hasPermission(device.deviceName)) "Permission granted" else "Request USB access")
+                                    }
                                     Button(
                                         onClick = { onRunInquiry(device.deviceName) },
                                         enabled = hasPermission(device.deviceName) && device.interfaces.any {
                                             UsbMassStorageProfile.inspect(it)?.canAttemptBulkOnlyTransport == true
                                         }
                                     ) { Text("Read device identity") }
-                                    Button(onClick = { onRunAtaIdentify(device.deviceName) }, enabled = hasPermission(device.deviceName) && device.interfaces.any { UsbMassStorageProfile.inspect(it)?.canAttemptBulkOnlyTransport == true }) { Text("Probe SAT / Identify ATA") }
+                                    Button(
+                                        onClick = { onRunAtaIdentify(device.deviceName) },
+                                        enabled = hasPermission(device.deviceName) && device.interfaces.any {
+                                            UsbMassStorageProfile.inspect(it)?.canAttemptBulkOnlyTransport == true
+                                        }
+                                    ) { Text("Probe SAT / Identify ATA") }
                                 }
                             }
                         }
@@ -200,7 +199,10 @@ private fun HdhaScreen(
                 }
             }
             Spacer(Modifier.height(4.dp))
-            Text("Read-only commands: SCSI INQUIRY and ATA IDENTIFY DEVICE. No SMART data commands, writes, formatting, repair, or sector tests are performed.", style = MaterialTheme.typography.bodySmall)
+            Text(
+                "Read-only commands: SCSI INQUIRY and ATA IDENTIFY DEVICE. No SMART data commands, writes, formatting, repair, or sector tests are performed.",
+                style = MaterialTheme.typography.bodySmall
+            )
         }
     }
 }

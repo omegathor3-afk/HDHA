@@ -262,19 +262,16 @@ private fun HdhaScreen(
                                         val health = SmartHealthEstimator.assess(latestSample)
                                         Card(modifier = Modifier.fillMaxWidth()) {
                                             Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                                                Text("Estimated drive health", style = MaterialTheme.typography.titleMedium)
-                                                Text(health.percentage?.let { "$it% · ${health.label}" } ?: health.label,
-                                                    style = MaterialTheme.typography.headlineSmall)
-                                                Text("Confidence: ${health.confidence} · Evidence: ${health.evidenceCount} attributes",
+                                                Text("SMART evidence assessment (not a health percentage)", style = MaterialTheme.typography.titleMedium)
+                                                Text(health.label, style = MaterialTheme.typography.headlineSmall)
+                                                Text("Comparable normalized attributes with non-zero vendor thresholds: ${health.evidenceCount}",
                                                     style = MaterialTheme.typography.bodySmall)
-                                                Text(health.explanation, style = MaterialTheme.typography.bodySmall)
-                                                val previousHealth = previousSample?.let(SmartHealthEstimator::assess)
-                                                if (health.percentage != null && previousHealth?.percentage != null) {
-                                                    val delta = health.percentage - previousHealth.percentage
-                                                    Text("Since previous saved scan: ${if (delta > 0) "+" else ""}$delta percentage points",
+                                                if (health.thresholdCrossings.isNotEmpty()) {
+                                                    Text("Attributes at/below their reported thresholds: ${health.thresholdCrossings.joinToString()}",
                                                         style = MaterialTheme.typography.bodySmall)
                                                 }
-                                                Text("This is an HDHA estimate, not an official manufacturer rating or failure prediction.",
+                                                Text(health.explanation, style = MaterialTheme.typography.bodySmall)
+                                                Text("No remaining-life estimate is produced. Keep backups even when SMART reports no threshold exceeded.",
                                                     style = MaterialTheme.typography.bodySmall)
                                             }
                                         }
@@ -282,7 +279,7 @@ private fun HdhaScreen(
                                             Text("[${alert.severity}] ${alert.message}", style = MaterialTheme.typography.bodySmall)
                                         }
                                     }
-                                    Text("SMART history is saved locally on this device.", style = MaterialTheme.typography.bodySmall)
+                                    Text("SMART history is saved locally on this device. Normalized Current/Worst values are vendor-defined; raw bytes remain hexadecimal and are not converted to guessed units.", style = MaterialTheme.typography.bodySmall)
                                 }
                                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                                     Button(

@@ -231,16 +231,10 @@ object SmartReportFormatter {
             appendLine("Samples retained: ${sorted.count { it.deviceKey == latest.deviceKey }}")
             appendLine("SMART RETURN STATUS: ${when (latest.thresholdExceeded) { true -> "THRESHOLD EXCEEDED"; false -> "NO THRESHOLD EXCEEDED"; null -> "UNKNOWN" }}")
             val health = SmartHealthEstimator.assess(latest)
-            appendLine("HDHA ESTIMATED HEALTH: ${health.percentage?.let { "$it% — ${health.label}" } ?: health.label}")
-            appendLine("ESTIMATE CONFIDENCE: ${health.confidence}; evidence attributes: ${health.evidenceCount}")
-            appendLine("ESTIMATE NOTE: ${health.explanation}")
-            if (health.percentage != null && previous != null) {
-                val previousHealth = SmartHealthEstimator.assess(previous)
-                if (previousHealth.percentage != null) {
-                    val delta = health.percentage - previousHealth.percentage
-                    appendLine("CHANGE SINCE PREVIOUS SAMPLE: ${if (delta > 0) "+" else ""}$delta percentage points")
-                }
-            }
+            appendLine("SMART SIGNAL SUMMARY: ${health.label}")
+            appendLine("RELEVANT NORMALIZED ATTRIBUTES WITH THRESHOLDS: ${health.evidenceCount}")
+            appendLine("INTERPRETATION: ${health.explanation}")
+            appendLine("OVERALL HEALTH PERCENTAGE: NOT CALCULATED (normalized SMART values are not a universal percentage scale)")
             appendLine()
             appendLine("ATTRIBUTES")
             latest.attributes.forEach { attribute ->

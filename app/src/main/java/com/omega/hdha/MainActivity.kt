@@ -39,6 +39,7 @@ class MainActivity : ComponentActivity() {
     private var devices by mutableStateOf(emptyList<UsbDriveCandidate>())
     private var inquiryResults by mutableStateOf<Map<String, UsbBotTransport.InquiryResult>>(emptyMap())
     private var ataResults by mutableStateOf<Map<String, UsbBotTransport.AtaIdentifyResult>>(emptyMap())
+    private var smartResults by mutableStateOf<Map<String, UsbBotTransport.SmartResult>>(emptyMap())
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -49,11 +50,13 @@ class MainActivity : ComponentActivity() {
                     devices = devices,
                     inquiryResults = inquiryResults,
                     ataResults = ataResults,
+                    smartResults = smartResults,
                     hasPermission = { name -> usbManager.deviceList[name]?.let(usbManager::hasPermission) == true },
                     onRefresh = ::refreshDevices,
                     onRequestPermission = ::requestUsbPermission,
                     onRunInquiry = ::runInquiry,
-                    onRunAtaIdentify = ::runAtaIdentify
+                    onRunAtaIdentify = ::runAtaIdentify,
+                    onRunSmart = ::runSmart
                 )
             }
         }
@@ -97,6 +100,15 @@ class MainActivity : ComponentActivity() {
             ataResults = ataResults + (deviceName to result)
         }
     }
+    private fun runSmart(deviceName: String) {
+        val device = usbManager.deviceList[deviceName] ?: return
+        smartResults = smartResults - deviceName
+        lifecycleScope.launch {
+            val result = withContext(Dispatchers.IO) { UsbBotTransport.readSmart(usbManager, device) }
+            smartResults = smartResults + (deviceName to result)
+        }
+    }
+
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -105,11 +117,13 @@ private fun HdhaScreen(
     devices: List<UsbDriveCandidate>,
     inquiryResults: Map<String, UsbBotTransport.InquiryResult>,
     ataResults: Map<String, UsbBotTransport.AtaIdentifyResult>,
+    smartResults: Map<String, UsbBotTransport.SmartResult>,
     hasPermission: (String) -> Boolean,
     onRefresh: () -> Unit,
     onRequestPermission: (String) -> Unit,
     onRunInquiry: (String) -> Unit,
-    onRunAtaIdentify: (String) -> Unit
+    onRunAtaIdentify: (String) -> Unit,
+    onRunSmart: (String) -> Unit
 ) {
     Scaffold(topBar = { TopAppBar(title = { Text("HDHA · Drive Inspector") }) }) { padding ->
         Column(
@@ -117,7 +131,7 @@ private fun HdhaScreen(
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             Text("USB device discovery", style = MaterialTheme.typography.headlineSmall)
-            Text("SCSI INQUIRY identifies the USB device. SAT probing sends ATA IDENTIFY DEVICE only (read-only); SMART attributes are not read yet.")
+            Text("SCSI INQUIRY and SAT ATA IDENTIFY are read-only. SMART reads run only when the drive reports SMART supported and enabled.")
             Button(onClick = onRefresh) { Text("Refresh connected devices") }
             if (devices.isEmpty()) {
                 Text("No USB devices detected. Connect a drive using OTG, then refresh.")
@@ -176,6 +190,31 @@ private fun HdhaScreen(
                                     }
                                     Text(ata.message, style = MaterialTheme.typography.bodySmall)
                                 }
+                                val smart = smartResults[device.deviceName]
+                                if (smart != null) {
+                                    Text(
+                                        if (smart.success) "SMART: data retrieved" else "SMART: unavailable",
+                                        style = MaterialTheme.typography.titleSmall
+                                    )
+                                    if (smart.success) {
+                                        Text(
+                                            when (smart.thresholdExceeded) {
+                                                true -> "SMART RETURN STATUS: threshold exceeded"
+                                                false -> "SMART RETURN STATUS: no threshold exceeded"
+                                                null -> "SMART RETURN STATUS: unknown signature"
+                                            }
+                                        )
+                                        Text("Attributes: ${smart.attributes.size} · Threshold entries: ${smart.thresholds.size}")
+                                        smart.attributes.forEach { attribute ->
+                                            val threshold = smart.thresholds[attribute.id]
+                                            Text(
+                                                "ID ${attribute.id} · Current ${attribute.current} · Worst ${attribute.worst} · Threshold ${threshold ?: "N/A"} · Raw ${attribute.rawValueHex}",
+                                                style = MaterialTheme.typography.bodySmall
+                                            )
+                                        }
+                                    }
+                                    Text(smart.message, style = MaterialTheme.typography.bodySmall)
+                                }
                                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                                     Button(
                                         onClick = { onRequestPermission(device.deviceName) },
@@ -195,6 +234,12 @@ private fun HdhaScreen(
                                             UsbMassStorageProfile.inspect(it)?.canAttemptBulkOnlyTransport == true
                                         }
                                     ) { Text("Probe SAT / Identify ATA") }
+                                    Button(
+                                        onClick = { onRunSmart(device.deviceName) },
+                                        enabled = hasPermission(device.deviceName) && device.interfaces.any {
+                                            UsbMassStorageProfile.inspect(it)?.canAttemptBulkOnlyTransport == true
+                                        }
+                                    ) { Text("Read SMART data and status") }
                                 }
                             }
                         }
@@ -203,7 +248,7 @@ private fun HdhaScreen(
             }
             Spacer(Modifier.height(4.dp))
             Text(
-                "Read-only commands: SCSI INQUIRY and ATA IDENTIFY DEVICE. No SMART data commands, writes, formatting, repair, or sector tests are performed.",
+                "Read-only only: SCSI INQUIRY, ATA IDENTIFY, SMART READ DATA, SMART READ THRESHOLDS, SMART RETURN STATUS and REQUEST SENSE. No SMART enable/disable, writes, formatting, repair, or sector tests.",
                 style = MaterialTheme.typography.bodySmall
             )
         }

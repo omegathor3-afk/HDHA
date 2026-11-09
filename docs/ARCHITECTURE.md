@@ -11,12 +11,12 @@ HDHA inspects external HDDs and SSDs connected to Android through USB OTG. It di
 - SCSI identity: INQUIRY (6-byte CDB, 36-byte allocation) returns peripheral type, removable flag, vendor, product and revision.
 - SAT probe: ATA PASS-THROUGH(16), PIO data-in, IDENTIFY DEVICE (0xEC), requesting exactly one 512-byte identification block.
 - ATA IDENTIFY parser: decodes serial, firmware, model, SMART supported/enabled bits, LBA28/LBA48 capacity and media rotation information. It validates the optional checksum when the 0xA5 signature is present.
-- Future SMART support: SMART READ DATA, SMART READ THRESHOLDS and SMART RETURN STATUS. Preserve raw bytes and do not assume vendor-specific raw attribute values have universal meanings.
+- SMART support: SAT ATA PASS-THROUGH(16) SMART READ DATA (0xD0), SMART READ THRESHOLDS (0xD1), and SMART RETURN STATUS (0xDA) with CK_COND followed by descriptor-format REQUEST SENSE. The ATA Return Descriptor is checked for standard threshold signatures. Preserve six raw attribute bytes as hex; do not assume vendor-specific raw values have universal meanings.
 
 ## SAT and BOT safeguards
 - A valid ATA IDENTIFY response with BOT command status PASS confirms that this bridge passed the ATA PASS-THROUGH command.
 - A failed or rejected command is indeterminate; it does not prove SAT is unsupported and never means the drive is healthy.
-- Only SCSI INQUIRY and ATA IDENTIFY DEVICE are issued. Neither modifies media or reads user filesystem sectors.
+- Only SCSI INQUIRY, ATA IDENTIFY DEVICE, SMART READ DATA, SMART READ THRESHOLDS, SMART RETURN STATUS and SCSI REQUEST SENSE are issued. No SMART enable/disable commands or media writes are issued.
 - USB transfers have bounded timeouts. The interface is released only if successfully claimed, and the connection is closed on completion or failure.
 - BOT reset recovery is not attempted automatically after a phase error; reconnect the drive before retrying.
 - UAS and CBI/CBB are not implemented. Some bridges expose BOT but reject ATA pass-through.
@@ -36,5 +36,5 @@ USB descriptors do not prove that a bridge supports SAT or passes ATA commands. 
 1. USB discovery, permission and descriptor classification — implemented.
 2. Read-only BOT transport and SCSI INQUIRY — implemented; physical validation pending.
 3. SAT probe and read-only ATA IDENTIFY DEVICE — implemented; physical validation pending.
-4. SMART data retrieval and interpretation — future work.
+4. SMART data retrieval and conservative raw interpretation — implemented; physical validation pending.
 5. Local-only health history and export — future work.

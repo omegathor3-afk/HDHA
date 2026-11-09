@@ -46,7 +46,7 @@ object BotProtocol {
         this[14] = 0xEC.toByte() // ATA IDENTIFY DEVICE
     }
 
-    fun buildCbw(tag: Long, transferLength: Long, cdb: ByteArray, lun: Int = 0): ByteArray {
+    fun buildCbw(tag: Long, transferLength: Long, cdb: ByteArray, lun: Int = 0, dataIn: Boolean = true): ByteArray {
         require(tag in 1L..0xFFFF_FFFFL) { "BOT tag must be a non-zero unsigned 32-bit value" }
         require(transferLength in 0L..0xFFFF_FFFFL) { "Transfer length is out of range" }
         require(lun in 0..15) { "BOT LUN must be between 0 and 15" }
@@ -55,7 +55,7 @@ object BotProtocol {
             putInt(CBW_SIGNATURE)
             putInt(tag.toInt())
             putInt(transferLength.toInt())
-            put(0x80.toByte()) // Data-In
+            put(if (transferLength == 0L) 0 else if (dataIn) 0x80 else 0) // BOT direction; zero for no-data commands
             put(lun.toByte())
             put(cdb.size.toByte())
             put(cdb)

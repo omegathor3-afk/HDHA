@@ -127,12 +127,98 @@ object UsbBotTransport {
         }
     }
 
+    data class SmartResult(
+        val success: Boolean,
+        val attributes: List<SmartProtocol.Attribute> = emptyList(),
+        val thresholds: Map<Int, Int> = emptyMap(),
+        val thresholdExceeded: Boolean? = null,
+        val ataStatus: Int? = null,
+        val ataError: Int? = null,
+        val message: String
+    )
+
+    /**
+     * Reads SMART READ DATA, READ THRESHOLDS and RETURN STATUS only.
+     * SMART must already be supported and enabled; this method never enables it.
+     */
+    fun readSmart(manager: UsbManager, device: UsbDevice): SmartResult {
+        if (!manager.hasPermission(device)) return smartFailure("USB permission has not been granted.")
+        val identify = identifyAta(manager, device)
+        if (!identify.success) return smartFailure("SAT is not confirmed: ${identify.message}")
+        if (!identify.smartSupported) return smartFailure("The drive reports that SMART is not supported.")
+        if (!identify.smartEnabled) return smartFailure("SMART is supported but not enabled. HDHA will not enable it.")
+
+        val candidate = findBotInterface(device)
+            ?: return smartFailure("No compatible SCSI/BOT interface was found.")
+        val bulkIn = findEndpoint(candidate, UsbConstants.USB_DIR_IN)
+            ?: return smartFailure("Bulk IN endpoint is missing.")
+        val bulkOut = findEndpoint(candidate, UsbConstants.USB_DIR_OUT)
+            ?: return smartFailure("Bulk OUT endpoint is missing.")
+        val connection = manager.openDevice(device)
+            ?: return smartFailure("Android could not open the USB device.")
+        var claimed = false
+        return try {
+            claimed = connection.claimInterface(candidate, false)
+            check(claimed) { "Could not claim the USB mass-storage interface." }
+
+            val rawData = executeReadOnlyDataIn(
+                connection, bulkIn, bulkOut, SmartProtocol.buildReadDataCdb(),
+                SmartProtocol.SECTOR_LENGTH
+            )
+            val smartData = SmartProtocol.parseReadData(rawData)
+
+            val rawThresholds = executeReadOnlyDataIn(
+                connection, bulkIn, bulkOut, SmartProtocol.buildReadThresholdsCdb(),
+                SmartProtocol.SECTOR_LENGTH
+            )
+            val thresholds = SmartProtocol.parseReadThresholds(rawThresholds)
+
+            val returnStatusCsw = executeNoDataCommand(
+                connection, bulkIn, bulkOut, SmartProtocol.buildReturnStatusCdb()
+            )
+            check(returnStatusCsw.status == 1) {
+                if (returnStatusCsw.status == 0) {
+                    "SMART RETURN STATUS did not return the requested ATA sense descriptor."
+                } else {
+                    "SMART RETURN STATUS ended with a BOT phase error."
+                }
+            }
+
+            val sense = executeReadOnlyDataIn(
+                connection, bulkIn, bulkOut, SmartProtocol.buildRequestSenseCdb(),
+                SmartProtocol.REQUEST_SENSE_ALLOCATION_LENGTH, allowShort = true
+            )
+            val ataStatus = SmartProtocol.parseAtaReturnDescriptor(sense)
+            SmartResult(
+                success = true,
+                attributes = smartData.attributes,
+                thresholds = thresholds,
+                thresholdExceeded = ataStatus.thresholdExceeded,
+                ataStatus = ataStatus.status,
+                ataError = ataStatus.error,
+                message = if (ataStatus.thresholdExceeded == null) {
+                    "SMART data read successfully, but the ATA RETURN STATUS signature is unknown. No health verdict is inferred."
+                } else if (ataStatus.thresholdExceeded) {
+                    "SMART RETURN STATUS reports that a threshold has been exceeded. Back up important data promptly."
+                } else {
+                    "SMART RETURN STATUS reports that no threshold has been exceeded. This does not guarantee the drive will not fail."
+                }
+            )
+        } catch (e: Exception) {
+            smartFailure("SMART read unavailable: ${e.message ?: e.javaClass.simpleName}")
+        } finally {
+            if (claimed) try { connection.releaseInterface(candidate) } catch (_: Exception) { }
+            connection.close()
+        }
+    }
+
     private fun executeReadOnlyDataIn(
         connection: UsbDeviceConnection,
         bulkIn: UsbEndpoint,
         bulkOut: UsbEndpoint,
         cdb: ByteArray,
-        expectedLength: Int
+        expectedLength: Int,
+        allowShort: Boolean = false
     ): ByteArray {
         require(expectedLength > 0) { "Read-only BOT data length must be positive." }
         val tag = nextTag.getAndIncrement().toLong().and(0xFFFF_FFFFL).let { if (it == 0L) 1L else it }
@@ -142,7 +228,10 @@ object UsbBotTransport {
 
         val data = ByteArray(expectedLength)
         val dataRead = connection.bulkTransfer(bulkIn, data, data.size, TRANSFER_TIMEOUT_MS)
-        check(dataRead == expectedLength) { "BOT data stage incomplete ($dataRead/$expectedLength bytes)." }
+        check(dataRead > 0 && dataRead <= expectedLength) { "BOT data stage failed or returned no bytes ($dataRead)." }
+        if (!allowShort) check(dataRead == expectedLength) {
+            "BOT data stage incomplete ($dataRead/$expectedLength bytes)."
+        }
 
         val cswBytes = ByteArray(BotProtocol.CSW_LENGTH)
         val cswRead = connection.bulkTransfer(bulkIn, cswBytes, cswBytes.size, TRANSFER_TIMEOUT_MS)
@@ -158,7 +247,23 @@ object UsbBotTransport {
             if (csw.status == 1) "SCSI command failed (CHECK CONDITION); SAT was not confirmed."
             else "BOT phase error; reconnect the drive before retrying."
         }
-        return data
+        return data.copyOf(dataRead)
+    }
+
+    private fun executeNoDataCommand(
+        connection: UsbDeviceConnection,
+        bulkIn: UsbEndpoint,
+        bulkOut: UsbEndpoint,
+        cdb: ByteArray
+    ): BotProtocol.CommandStatusWrapper {
+        val tag = nextTag.getAndIncrement().toLong().and(0xFFFF_FFFFL).let { if (it == 0L) 1L else it }
+        val cbw = BotProtocol.buildCbw(tag, 0L, cdb, dataIn = false)
+        val cbwSent = connection.bulkTransfer(bulkOut, cbw, cbw.size, TRANSFER_TIMEOUT_MS)
+        check(cbwSent == cbw.size) { "BOT no-data command wrapper transfer failed or timed out." }
+        val cswBytes = ByteArray(BotProtocol.CSW_LENGTH)
+        val cswRead = connection.bulkTransfer(bulkIn, cswBytes, cswBytes.size, TRANSFER_TIMEOUT_MS)
+        check(cswRead == cswBytes.size) { "BOT no-data status wrapper transfer failed or timed out." }
+        return BotProtocol.parseCsw(cswBytes, expectedTag = tag, expectedTransferLength = 0L)
     }
 
     private fun findBotInterface(device: UsbDevice): UsbInterface? =
@@ -180,6 +285,7 @@ object UsbBotTransport {
             }
 
     private fun inquiryFailure(message: String) = InquiryResult(success = false, message = message)
+    private fun smartFailure(message: String) = SmartResult(success = false, message = message)
     private fun ataFailure(satSupported: Boolean?, message: String) =
         AtaIdentifyResult(success = false, satSupported = satSupported, message = message)
 }

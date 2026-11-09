@@ -24,44 +24,34 @@ class SmartHealthEstimatorTest {
         thresholds = mapOf(5 to threshold, 197 to threshold)
     )
 
-    @Test fun calculatesWeightedPercentageFromSupportedNormalizedAttributes() {
+    @Test fun neverInventsUniversalHealthPercentage() {
         val result = SmartHealthEstimator.assess(sample())
-        assertNotNull(result.percentage)
-        assertEquals(96, result.percentage)
-        assertEquals("Excellent", result.label)
+        assertNull(result.percentage)
+        assertEquals("No SMART threshold exceeded", result.label)
         assertEquals(2, result.evidenceCount)
-        assertEquals("Limited", result.confidence)
+        assertTrue(result.explanation.contains("does not guarantee"))
     }
 
-    @Test fun doesNotCalculatePercentageWhenSmartReturnStatusIsUnknown() {
+    @Test fun unknownReturnStatusIsUnavailableNotHealthy() {
         val result = SmartHealthEstimator.assess(sample(status = null))
         assertNull(result.percentage)
-        assertEquals("Unknown", result.label)
+        assertEquals("SMART status unknown", result.label)
     }
 
-    @Test fun doesNotCalculatePercentageWhenDriveReportsThresholdExceeded() {
+    @Test fun driveReportedThresholdFailureIsCritical() {
         val result = SmartHealthEstimator.assess(sample(status = true))
         assertNull(result.percentage)
-        assertEquals("Critical", result.label)
+        assertEquals("SMART threshold exceeded", result.label)
     }
 
-    @Test fun doesNotCalculatePercentageWithInsufficientEvidence() {
-        val oneAttribute = sample().copy(
-            attributes = sample().attributes.take(1),
-            thresholds = mapOf(5 to 10)
-        )
-        val result = SmartHealthEstimator.assess(oneAttribute)
-        assertNull(result.percentage)
-        assertEquals("Insufficient data", result.label)
-    }
-
-    @Test fun doesNotCalculatePercentageWhenSupportedAttributeCrossesItsThreshold() {
+    @Test fun normalizedAttributeAtThresholdIsFlagged() {
         val result = SmartHealthEstimator.assess(sample(first = 10, second = 95))
         assertNull(result.percentage)
-        assertEquals("Critical attribute threshold", result.label)
+        assertEquals("SMART attribute threshold reached", result.label)
+        assertTrue(result.explanation.contains("ID 5"))
     }
 
-    @Test fun ignoresRawValuesAndUnsupportedAttributesInsteadOfGuessingUnits() {
+    @Test fun noRelevantAttributesDoesNotBecomeHealthyOrCreateScore() {
         val onlyUnknown = sample().copy(
             attributes = listOf(SmartProtocol.Attribute(9, 0, 99, 99, "FFFFFFFFFFFF")),
             thresholds = mapOf(9 to 1)
@@ -69,10 +59,18 @@ class SmartHealthEstimatorTest {
         val result = SmartHealthEstimator.assess(onlyUnknown)
         assertNull(result.percentage)
         assertEquals(0, result.evidenceCount)
+        assertEquals("No SMART threshold exceeded", result.label)
     }
 
-    @Test fun percentageIsBoundedToZeroThroughOneHundred() {
-        val result = SmartHealthEstimator.assess(sample(first = 100, second = 100))
-        assertEquals(100, result.percentage)
+    @Test fun invalidNormalizedValuesAreNotTreatedAsAHealthScore() {
+        val invalid = sample().copy(
+            attributes = listOf(
+                SmartProtocol.Attribute(5, 0, 255, 255, "010000000000"),
+                SmartProtocol.Attribute(197, 0, 0, 0, "000000000000")
+            )
+        )
+        val result = SmartHealthEstimator.assess(invalid)
+        assertNull(result.percentage)
+        assertFalse(result.label.contains("Excellent"))
     }
 }

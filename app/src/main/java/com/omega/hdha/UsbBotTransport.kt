@@ -281,8 +281,23 @@ object UsbBotTransport {
                         e
                     )
                 }
+                val senseSummary = if (failedCsw.status == 1) {
+                    try {
+                        val sense = executeReadOnlyDataIn(
+                            connection, bulkIn, bulkOut,
+                            SmartProtocol.buildRequestSenseCdb(),
+                            SmartProtocol.REQUEST_SENSE_ALLOCATION_LENGTH,
+                            allowShort = true
+                        )
+                        describeSense(sense)
+                    } catch (senseError: Exception) {
+                        "REQUEST SENSE failed: ${senseError.message ?: senseError.javaClass.simpleName}"
+                    }
+                } else {
+                    "REQUEST SENSE skipped because BOT status was ${failedCsw.status}."
+                }
                 throw IllegalStateException(
-                    "USB bridge rejected the ATA/SCSI data command: data stage=$dataRead, CSW status=${failedCsw.status}, residue=${failedCsw.residue}/$expectedLength. Endpoint halt clear=$clearResult. SMART support in IDENTIFY does not guarantee this SMART command is passed through."
+                    "USB bridge rejected the ATA/SCSI data command: data stage=$dataRead, CSW status=${failedCsw.status}, residue=${failedCsw.residue}/$expectedLength. Endpoint halt clear=$clearResult. $senseSummary SMART support in IDENTIFY does not guarantee this SMART command is passed through."
                 )
             }
             throw IllegalStateException(
@@ -309,6 +324,21 @@ object UsbBotTransport {
             else "BOT phase error; reconnect the drive before retrying."
         }
         return data.copyOf(dataRead)
+    }
+
+    private fun describeSense(sense: ByteArray): String {
+        if (sense.size < 8) return "REQUEST SENSE returned only ${sense.size} bytes."
+        val response = sense[0].toInt() and 0x7F
+        val key = sense[1].toInt() and 0x0F
+        val asc = sense[2].toInt() and 0xFF
+        val ascq = sense[3].toInt() and 0xFF
+        val descriptorTypes = if (response == 0x72 || response == 0x73) {
+            val end = minOf(sense.size, 8 + (sense[7].toInt() and 0xFF))
+            (8 until end).mapNotNull { offset ->
+                if (offset + 1 < end) "0x%02X".format(sense[offset].toInt() and 0xFF) else null
+            }.distinct()
+        } else emptyList()
+        return "REQUEST SENSE: response=0x%02X, senseKey=0x%X, ASC=0x%02X, ASCQ=0x%02X, descriptorTypes=$descriptorTypes.".format(response, key, asc, ascq)
     }
 
     private fun executeNoDataCommand(

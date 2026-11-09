@@ -101,7 +101,7 @@ object BotProtocol {
             return (bytes[offset].toInt() and 0xFF) or
                 ((bytes[offset + 1].toInt() and 0xFF) shl 8)
         }
-        require((word(0) and 0x8000) == 0) { "ATA IDENTIFY has an invalid general configuration word" }
+        require(word(0) != 0 && word(0) != 0xFFFF && (word(0) and 0x8000) == 0) { "ATA IDENTIFY has an invalid general configuration word" }
         if ((word(255) ushr 8) == 0xA5) {
             require((bytes.sumOf { it.toInt() and 0xFF } and 0xFF) == 0) {
                 "ATA IDENTIFY checksum is invalid"

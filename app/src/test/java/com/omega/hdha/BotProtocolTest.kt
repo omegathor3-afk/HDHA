@@ -110,10 +110,11 @@ class BotProtocolTest {
 
     @Test fun validatesOptionalAtaIdentifyChecksum() {
         val valid = ByteArray(512)
+        valid[0] = 0x40
         valid[511] = 0xA5.toByte()
-        valid[510] = 0x5B // Sum of all bytes is 256 (mod 256 == 0).
+        valid[510] = 0x1B // Sum of all bytes is 256 (mod 256 == 0).
         assertNotNull(BotProtocol.parseAtaIdentify(valid))
-        valid[510] = 0x5A
+        valid[510] = 0x1A
         assertThrows(IllegalArgumentException::class.java) { BotProtocol.parseAtaIdentify(valid) }
     }
 

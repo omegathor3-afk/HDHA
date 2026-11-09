@@ -259,6 +259,25 @@ private fun HdhaScreen(
                                     val latestSample = matchingSamples.lastOrNull()
                                     val previousSample = matchingSamples.dropLast(1).lastOrNull()
                                     if (latestSample != null) {
+                                        val health = SmartHealthEstimator.assess(latestSample)
+                                        Card(modifier = Modifier.fillMaxWidth()) {
+                                            Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                                Text("Estimated drive health", style = MaterialTheme.typography.titleMedium)
+                                                Text(health.percentage?.let { "$it% · ${health.label}" } ?: health.label,
+                                                    style = MaterialTheme.typography.headlineSmall)
+                                                Text("Confidence: ${health.confidence} · Evidence: ${health.evidenceCount} attributes",
+                                                    style = MaterialTheme.typography.bodySmall)
+                                                Text(health.explanation, style = MaterialTheme.typography.bodySmall)
+                                                val previousHealth = previousSample?.let(SmartHealthEstimator::assess)
+                                                if (health.percentage != null && previousHealth?.percentage != null) {
+                                                    val delta = health.percentage - previousHealth.percentage
+                                                    Text("Since previous saved scan: ${if (delta > 0) "+" else ""}$delta percentage points",
+                                                        style = MaterialTheme.typography.bodySmall)
+                                                }
+                                                Text("This is an HDHA estimate, not an official manufacturer rating or failure prediction.",
+                                                    style = MaterialTheme.typography.bodySmall)
+                                            }
+                                        }
                                         SmartTrendAnalyzer.compare(previousSample, latestSample).forEach { alert ->
                                             Text("[${alert.severity}] ${alert.message}", style = MaterialTheme.typography.bodySmall)
                                         }

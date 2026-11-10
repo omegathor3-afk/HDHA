@@ -3,6 +3,9 @@ package com.omega.hdha
 import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
+import android.content.BroadcastReceiver
+import android.content.IntentFilter
+import android.os.Build
 import android.hardware.usb.UsbDevice
 import android.hardware.usb.UsbManager
 import android.os.Bundle
@@ -37,6 +40,13 @@ import kotlinx.coroutines.withContext
 class MainActivity : ComponentActivity() {
     private lateinit var usbManager: UsbManager
     private var devices by mutableStateOf(emptyList<UsbDriveCandidate>())
+    private var permissionGrantedDevices by mutableStateOf<Set<String>>(emptySet())
+    private val permissionResultReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context, intent: Intent) {
+            if (intent.action == UsbPermissionReceiver.ACTION_PERMISSION_RESULT) refreshDevices()
+        }
+    }
+    private var permissionReceiverRegistered = false
     private var inquiryResults by mutableStateOf<Map<String, UsbBotTransport.InquiryResult>>(emptyMap())
     private var ataResults by mutableStateOf<Map<String, UsbBotTransport.AtaIdentifyResult>>(emptyMap())
     private var smartResults by mutableStateOf<Map<String, UsbBotTransport.SmartResult>>(emptyMap())
@@ -48,6 +58,14 @@ class MainActivity : ComponentActivity() {
         usbManager = getSystemService(Context.USB_SERVICE) as UsbManager
         historyStore = SmartHistoryStore(applicationContext)
         historySamples = historyStore.readAll()
+        val resultFilter = IntentFilter(UsbPermissionReceiver.ACTION_PERMISSION_RESULT)
+        if (Build.VERSION.SDK_INT >= 33) {
+            registerReceiver(permissionResultReceiver, resultFilter, Context.RECEIVER_NOT_EXPORTED)
+        } else {
+            @Suppress("DEPRECATION")
+            registerReceiver(permissionResultReceiver, resultFilter)
+        }
+        permissionReceiverRegistered = true
         setContent {
             MaterialTheme {
                 HdhaScreen(
@@ -56,7 +74,7 @@ class MainActivity : ComponentActivity() {
                     ataResults = ataResults,
                     smartResults = smartResults,
                     historySamples = historySamples,
-                    hasPermission = { name -> usbManager.deviceList[name]?.let(usbManager::hasPermission) == true },
+                    hasPermission = { name -> name in permissionGrantedDevices },
                     onRefresh = ::refreshDevices,
                     onRequestPermission = ::requestUsbPermission,
                     onRunInquiry = ::runInquiry,
@@ -73,8 +91,20 @@ class MainActivity : ComponentActivity() {
         if (::usbManager.isInitialized) refreshDevices()
     }
 
+    override fun onDestroy() {
+        if (permissionReceiverRegistered) {
+            unregisterReceiver(permissionResultReceiver)
+            permissionReceiverRegistered = false
+        }
+        super.onDestroy()
+    }
+
     private fun refreshDevices() {
-        devices = UsbDeviceInspector.discover(usbManager)
+        val found = UsbDeviceInspector.discover(usbManager)
+        devices = found
+        permissionGrantedDevices = found.filter { candidate ->
+            usbManager.deviceList[candidate.deviceName]?.let(usbManager::hasPermission) == true
+        }.map { it.deviceName }.toSet()
     }
 
     private fun requestUsbPermission(deviceName: String) {
@@ -223,6 +253,23 @@ private fun HdhaScreen(
                                     Text(ata.message, style = MaterialTheme.typography.bodySmall)
                                 }
                                 val smart = smartResults[device.deviceName]
+                                if (smart == null) {
+                                    Card(modifier = Modifier.fillMaxWidth()) {
+                                        Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                            Text("SMART health status: NOT ASSESSED", style = MaterialTheme.typography.titleMedium)
+                                            Text("No valid SMART scan has been completed for this device in this session. Read device identity, then run 'Read SMART data and status'. USB discovery alone cannot determine drive health.",
+                                                style = MaterialTheme.typography.bodySmall)
+                                        }
+                                    }
+                                } else if (!smart.success) {
+                                    Card(modifier = Modifier.fillMaxWidth()) {
+                                        Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                            Text("SMART health status: UNAVAILABLE", style = MaterialTheme.typography.titleMedium)
+                                            Text("HDHA has no trustworthy health result because SMART data could not be read. This is not a pass and not proof that the drive is failing.",
+                                                style = MaterialTheme.typography.bodySmall)
+                                        }
+                                    }
+                                }
                                 if (smart != null) {
                                     Text(
                                         if (smart.success) "SMART: data retrieved" else "SMART: unavailable",
@@ -262,19 +309,16 @@ private fun HdhaScreen(
                                         val health = SmartHealthEstimator.assess(latestSample)
                                         Card(modifier = Modifier.fillMaxWidth()) {
                                             Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                                                Text("Estimated drive health", style = MaterialTheme.typography.titleMedium)
-                                                Text(health.percentage?.let { "$it% · ${health.label}" } ?: health.label,
-                                                    style = MaterialTheme.typography.headlineSmall)
-                                                Text("Confidence: ${health.confidence} · Evidence: ${health.evidenceCount} attributes",
+                                                Text("SMART evidence assessment (not a health percentage)", style = MaterialTheme.typography.titleMedium)
+                                                Text(health.label, style = MaterialTheme.typography.headlineSmall)
+                                                Text("Comparable normalized attributes with non-zero vendor thresholds: ${health.evidenceCount}",
                                                     style = MaterialTheme.typography.bodySmall)
-                                                Text(health.explanation, style = MaterialTheme.typography.bodySmall)
-                                                val previousHealth = previousSample?.let(SmartHealthEstimator::assess)
-                                                if (health.percentage != null && previousHealth?.percentage != null) {
-                                                    val delta = health.percentage - previousHealth.percentage
-                                                    Text("Since previous saved scan: ${if (delta > 0) "+" else ""}$delta percentage points",
+                                                if (health.thresholdCrossings.isNotEmpty()) {
+                                                    Text("Attributes at/below their reported thresholds: ${health.thresholdCrossings.joinToString()}",
                                                         style = MaterialTheme.typography.bodySmall)
                                                 }
-                                                Text("This is an HDHA estimate, not an official manufacturer rating or failure prediction.",
+                                                Text(health.explanation, style = MaterialTheme.typography.bodySmall)
+                                                Text("No remaining-life estimate is produced. Keep backups even when SMART reports no threshold exceeded.",
                                                     style = MaterialTheme.typography.bodySmall)
                                             }
                                         }
@@ -282,7 +326,7 @@ private fun HdhaScreen(
                                             Text("[${alert.severity}] ${alert.message}", style = MaterialTheme.typography.bodySmall)
                                         }
                                     }
-                                    Text("SMART history is saved locally on this device.", style = MaterialTheme.typography.bodySmall)
+                                    Text("SMART history is saved locally on this device. Normalized Current/Worst values are vendor-defined; raw bytes remain hexadecimal and are not converted to guessed units.", style = MaterialTheme.typography.bodySmall)
                                 }
                                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                                     Button(
@@ -293,21 +337,15 @@ private fun HdhaScreen(
                                     }
                                     Button(
                                         onClick = { onRunInquiry(device.deviceName) },
-                                        enabled = hasPermission(device.deviceName) && device.interfaces.any {
-                                            UsbMassStorageProfile.inspect(it)?.canAttemptBulkOnlyTransport == true
-                                        }
+                                        enabled = true
                                     ) { Text("Read device identity") }
                                     Button(
                                         onClick = { onRunAtaIdentify(device.deviceName) },
-                                        enabled = hasPermission(device.deviceName) && device.interfaces.any {
-                                            UsbMassStorageProfile.inspect(it)?.canAttemptBulkOnlyTransport == true
-                                        }
+                                        enabled = true
                                     ) { Text("Probe SAT / Identify ATA") }
                                     Button(
                                         onClick = { onRunSmart(device.deviceName) },
-                                        enabled = hasPermission(device.deviceName) && device.interfaces.any {
-                                            UsbMassStorageProfile.inspect(it)?.canAttemptBulkOnlyTransport == true
-                                        }
+                                        enabled = true
                                     ) { Text("Read SMART data and status") }
                                 }
                             }

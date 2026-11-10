@@ -104,7 +104,9 @@ object SmartTrendAnalyzer {
                 "SMART RETURN STATUS is unknown; no overall health verdict is available.")
             false -> Unit
         }
-        val hasMatchingPrevious = previous?.deviceKey == current.deviceKey
+        val hasMatchingPrevious = previous != null &&
+            previous.deviceKey == current.deviceKey &&
+            previous.capturedAtMillis < current.capturedAtMillis
         val prior = previous
             ?.takeIf { hasMatchingPrevious }
             ?.attributes

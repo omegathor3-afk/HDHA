@@ -85,6 +85,19 @@ class SmartInsightsTest {
         assertTrue(SmartReportFormatter.format(emptyList()).contains("No SMART samples"))
     }
 
+    @Test fun sameOrNewerTimestampIsNotUsedAsTrendBaseline() {
+        val current = sample(time = 2, current = 89)
+        listOf(
+            sample(time = 2, current = 95),
+            sample(time = 3, current = 95)
+        ).forEach { nonEarlier ->
+            val alerts = SmartTrendAnalyzer.compare(nonEarlier, current)
+            assertFalse(alerts.any { it.attributeId == 5 && it.severity == AlertSeverity.WARNING })
+            assertTrue(alerts.any { it.message.contains("First saved sample") })
+            assertFalse(alerts.any { it.message.contains("fell from") })
+        }
+    }
+
     @Test fun previousSampleFromAnotherDriveIsIgnored() {
         val previousOtherDrive = sample(current = 95).copy(deviceKey = "other-drive")
         val current = sample(time = 2, current = 89)

@@ -112,4 +112,28 @@ class SmartInsightsTest {
         val alerts = SmartTrendAnalyzer.compare(null, unrelated)
         assertTrue(alerts.any { it.message.contains("First saved sample") })
     }
+    @Test fun sameSerialFromDifferentModelIsNotUsedAsTrendBaseline() {
+        val previous = sample(current = 95)
+        val current = sample(time = 2, current = 89).copy(model = "WD10EZEX")
+        val alerts = SmartTrendAnalyzer.compare(previous, current)
+        assertFalse(alerts.any { it.attributeId == 5 && it.severity == AlertSeverity.WARNING })
+        assertTrue(alerts.any { it.message.contains("First saved sample") })
+    }
+
+    @Test fun sameSerialFromDifferentVendorIsNotUsedAsTrendBaseline() {
+        val previous = sample(current = 95)
+        val current = sample(time = 2, current = 89).copy(vendor = "Western Digital", model = "WD10EZEX")
+        val alerts = SmartTrendAnalyzer.compare(previous, current)
+        assertFalse(alerts.any { it.attributeId == 5 && it.severity == AlertSeverity.WARNING })
+        assertTrue(alerts.any { it.message.contains("First saved sample") })
+    }
+
+    @Test fun reportCountsOnlySamplesMatchingFullDriveIdentity() {
+        val first = sample()
+        val otherModel = sample(time = 2).copy(model = "WD10EZEX")
+        val report = SmartReportFormatter.format(listOf(first, otherModel), 1000L)
+        assertTrue(report.contains("Samples retained: 1"))
+        assertFalse(report.contains("CHANGE SINCE PREVIOUS SAMPLE"))
+    }
+
 }

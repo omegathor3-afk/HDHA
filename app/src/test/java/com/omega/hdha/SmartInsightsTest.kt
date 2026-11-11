@@ -79,6 +79,8 @@ class SmartInsightsTest {
         assertTrue(report.contains("raw=010000000000"))
         assertTrue(report.contains("manufacturer/model dependent"))
         assertTrue(report.contains("read-only SMART operations"))
+        assertTrue(report.contains("HEALTH PERCENTAGE / REMAINING LIFE: Not calculated"))
+        assertFalse(report.contains("HDHA ESTIMATED HEALTH"))
     }
 
     @Test fun emptyReportIsExplicit() {

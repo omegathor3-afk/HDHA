@@ -26,9 +26,10 @@ Requires JDK 17 and Android SDK Platform 35. Run: gradle testDebugUnitTest assem
 
 See docs/ARCHITECTURE.md and docs/DEVICE_VALIDATION.md.
 
-## HDHA estimated health percentage
-- The dashboard shows an **HDHA estimate** only when SMART RETURN STATUS is explicitly clear and at least two supported normalized health attributes (IDs 5, 10, 187, 188, 196, 197, 198) have valid threshold entries.
-- The estimate is a weighted summary of normalized current values, with greater weights for reallocated, pending and uncorrectable-sector indicators. It is not a manufacturer rating, remaining-lifespan percentage, or probability of failure.
-- If SMART status is unknown, a drive-level threshold is exceeded, a supported attribute reaches its threshold, or evidence is insufficient, no percentage is shown; the app displays the reason instead.
-- Confidence is labelled Limited for two or three supported indicators and Moderate for four or more. The app does not interpret vendor-specific raw bytes to manufacture a score.
-- Historical scans show the change in estimate only when both samples contain a valid percentage for the same device identity. A clean score never guarantees future reliability; maintain independent backups.
+## Honest SMART interpretation
+- HDHA does **not** calculate a drive-health percentage or remaining-life estimate. Normalized SMART values and attribute semantics are model/vendor dependent; averaging them into a universal percentage is not technically defensible.
+- The app reports ATA SMART RETURN STATUS as threshold exceeded, no threshold exceeded, or unknown. "No threshold exceeded" is not the same as "healthy".
+- Where a normalized SMART attribute and a non-zero threshold are both present, HDHA reports values at or below that drive-reported threshold. This is a vendor-reported warning, not a lifespan prediction.
+- Raw six-byte values are preserved as hexadecimal. HDHA does not infer sector counts, hours, temperature, or SSD wear from undocumented encodings.
+- Results depend on the USB-SATA bridge's SAT pass-through and the data returned by the drive. Physical validation against smartctl on known hardware remains required before claiming device compatibility.
+- Always keep independent backups. SMART can miss sudden failures.

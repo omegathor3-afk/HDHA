@@ -254,16 +254,11 @@ object SmartReportFormatter {
             appendLine("Samples retained: ${matchingSamples.size}")
             appendLine("SMART RETURN STATUS: ${when (latest.thresholdExceeded) { true -> "THRESHOLD EXCEEDED"; false -> "NO THRESHOLD EXCEEDED"; null -> "UNKNOWN" }}")
             val health = SmartHealthEstimator.assess(latest)
-            appendLine("HDHA ESTIMATED HEALTH: ${health.percentage?.let { "$it% — ${health.label}" } ?: health.label}")
-            appendLine("ESTIMATE CONFIDENCE: ${health.confidence}; evidence attributes: ${health.evidenceCount}")
-            appendLine("ESTIMATE NOTE: ${health.explanation}")
-            if (health.percentage != null && previous != null) {
-                val previousHealth = SmartHealthEstimator.assess(previous)
-                if (previousHealth.percentage != null) {
-                    val delta = health.percentage - previousHealth.percentage
-                    appendLine("CHANGE SINCE PREVIOUS SAMPLE: ${if (delta > 0) "+" else ""}$delta percentage points")
-                }
-            }
+            appendLine("SMART EVIDENCE ASSESSMENT: ${health.label}")
+            appendLine("ATTRIBUTES WITH COMPARABLE NON-ZERO THRESHOLDS: ${health.evidenceCount}")
+            appendLine("ATTRIBUTES AT/BELOW THRESHOLD: ${if (health.thresholdCrossings.isEmpty()) "None reported" else health.thresholdCrossings.joinToString()}")
+            appendLine("ASSESSMENT NOTE: ${health.explanation}")
+            appendLine("HEALTH PERCENTAGE / REMAINING LIFE: Not calculated; SMART data does not support a universal percentage.")
             appendLine()
             appendLine("ATTRIBUTES")
             latest.attributes.forEach { attribute ->

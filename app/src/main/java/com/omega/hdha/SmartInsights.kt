@@ -3,6 +3,7 @@ package com.omega.hdha
 import android.content.Context
 import org.json.JSONArray
 import org.json.JSONObject
+import java.util.Locale
 
 enum class AttributeDirection { LOWER_NORMALIZED_IS_WORSE, HIGHER_NORMALIZED_IS_WORSE, UNKNOWN }
 
@@ -90,6 +91,25 @@ data class SmartSample(
     val thresholds: Map<Int, Int>
 )
 
+
+/**
+ * A serial number alone is not globally unique. Keep SMART history comparisons
+ * scoped to the same device key, vendor, model and serial before inferring trends.
+ */
+object SmartDeviceIdentity {
+    private fun normalize(value: String): String =
+        value.trim().replace(Regex("\\\\s+"), " ").uppercase(Locale.ROOT)
+
+    fun matches(sample: SmartSample, deviceKey: String, vendor: String, model: String, serial: String): Boolean =
+        normalize(sample.deviceKey) == normalize(deviceKey) &&
+            normalize(sample.vendor) == normalize(vendor) &&
+            normalize(sample.model) == normalize(model) &&
+            normalize(sample.serial) == normalize(serial)
+
+    fun sameDevice(first: SmartSample, second: SmartSample): Boolean =
+        matches(first, second.deviceKey, second.vendor, second.model, second.serial)
+}
+
 enum class AlertSeverity { INFO, WARNING, CRITICAL }
 
 data class SmartAlert(val attributeId: Int?, val severity: AlertSeverity, val message: String)
@@ -105,8 +125,8 @@ object SmartTrendAnalyzer {
             false -> Unit
         }
         val hasMatchingPrevious = previous != null &&
-            previous.deviceKey == current.deviceKey &&
-            previous.capturedAtMillis < current.capturedAtMillis
+            previous.capturedAtMillis < current.capturedAtMillis &&
+            SmartDeviceIdentity.sameDevice(previous, current)
         val prior = previous
             ?.takeIf { hasMatchingPrevious }
             ?.attributes
@@ -221,7 +241,8 @@ object SmartReportFormatter {
         if (samples.isEmpty()) return "HDHA SMART REPORT\nNo SMART samples have been saved yet.\n"
         val sorted = samples.sortedBy { it.capturedAtMillis }
         val latest = sorted.last()
-        val previous = sorted.dropLast(1).lastOrNull { it.deviceKey == latest.deviceKey }
+        val matchingSamples = sorted.filter { SmartDeviceIdentity.sameDevice(it, latest) }
+        val previous = matchingSamples.dropLast(1).lastOrNull()
         val profile = SmartAttributeProfiles.resolve(latest.vendor, latest.model)
         val alerts = SmartTrendAnalyzer.compare(previous, latest)
         return buildString {
@@ -230,7 +251,7 @@ object SmartReportFormatter {
             appendLine("Device: ${latest.vendor.ifBlank { "Unknown vendor" }} ${latest.model.ifBlank { "Unknown model" }}")
             appendLine("Serial: ${latest.serial.ifBlank { "Not supplied" }}")
             appendLine("Profile: ${profile.key}")
-            appendLine("Samples retained: ${sorted.count { it.deviceKey == latest.deviceKey }}")
+            appendLine("Samples retained: ${matchingSamples.size}")
             appendLine("SMART RETURN STATUS: ${when (latest.thresholdExceeded) { true -> "THRESHOLD EXCEEDED"; false -> "NO THRESHOLD EXCEEDED"; null -> "UNKNOWN" }}")
             val health = SmartHealthEstimator.assess(latest)
             appendLine("HDHA ESTIMATED HEALTH: ${health.percentage?.let { "$it% — ${health.label}" } ?: health.label}")

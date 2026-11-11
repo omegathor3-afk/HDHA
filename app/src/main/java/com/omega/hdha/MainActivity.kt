@@ -252,10 +252,16 @@ private fun HdhaScreen(
                                     }
                                     Text(smart.message, style = MaterialTheme.typography.bodySmall)
                                     val historyAta = ataResults[device.deviceName]
-                                    val historyKey = historyAta?.serialNumber?.takeIf { it.isNotBlank() }
-                                        ?: (device.vendorId.toString() + ":" + device.productId + ":" + historyAta?.model.orEmpty().ifBlank { device.product })
-                                    val matchingSamples = historySamples.filter { it.deviceKey == historyKey }
-                                        .sortedBy { it.capturedAtMillis }
+                                    val historyVendor = inquiryResults[device.deviceName]?.vendor.orEmpty()
+                                        .ifBlank { device.manufacturer }
+                                    val historyModel = historyAta?.model.orEmpty().ifBlank { device.product }
+                                    val historySerial = historyAta?.serialNumber.orEmpty()
+                                    val historyKey = historySerial.ifBlank {
+                                        device.vendorId.toString() + ":" + device.productId + ":" + historyModel
+                                    }
+                                    val matchingSamples = historySamples.filter {
+                                        SmartDeviceIdentity.matches(it, historyKey, historyVendor, historyModel, historySerial)
+                                    }.sortedBy { it.capturedAtMillis }
                                     val latestSample = matchingSamples.lastOrNull()
                                     val previousSample = matchingSamples.dropLast(1).lastOrNull()
                                     if (latestSample != null) {

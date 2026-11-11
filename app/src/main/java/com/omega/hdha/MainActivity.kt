@@ -223,6 +223,23 @@ private fun HdhaScreen(
                                     Text(ata.message, style = MaterialTheme.typography.bodySmall)
                                 }
                                 val smart = smartResults[device.deviceName]
+                                if (smart == null) {
+                                    Card(modifier = Modifier.fillMaxWidth()) {
+                                        Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                            Text("SMART health status: NOT ASSESSED", style = MaterialTheme.typography.titleMedium)
+                                            Text("No valid SMART scan has been completed for this device in this session. Read device identity, then run Read SMART data and status. USB discovery alone cannot determine drive health.",
+                                                style = MaterialTheme.typography.bodySmall)
+                                        }
+                                    }
+                                } else if (!smart.success) {
+                                    Card(modifier = Modifier.fillMaxWidth()) {
+                                        Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                            Text("SMART health status: UNAVAILABLE", style = MaterialTheme.typography.titleMedium)
+                                            Text("HDHA has no trustworthy health result because SMART data could not be read. This is not a pass and not proof that the drive is failing.",
+                                                style = MaterialTheme.typography.bodySmall)
+                                        }
+                                    }
+                                }
                                 if (smart != null) {
                                     Text(
                                         if (smart.success) "SMART: data retrieved" else "SMART: unavailable",
@@ -268,19 +285,16 @@ private fun HdhaScreen(
                                         val health = SmartHealthEstimator.assess(latestSample)
                                         Card(modifier = Modifier.fillMaxWidth()) {
                                             Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                                                Text("Estimated drive health", style = MaterialTheme.typography.titleMedium)
-                                                Text(health.percentage?.let { "$it% · ${health.label}" } ?: health.label,
-                                                    style = MaterialTheme.typography.headlineSmall)
-                                                Text("Confidence: ${health.confidence} · Evidence: ${health.evidenceCount} attributes",
+                                                Text("SMART evidence assessment (not a health percentage)", style = MaterialTheme.typography.titleMedium)
+                                                Text(health.label, style = MaterialTheme.typography.headlineSmall)
+                                                Text("Comparable normalized attributes with non-zero vendor thresholds: ${health.evidenceCount}",
                                                     style = MaterialTheme.typography.bodySmall)
-                                                Text(health.explanation, style = MaterialTheme.typography.bodySmall)
-                                                val previousHealth = previousSample?.let(SmartHealthEstimator::assess)
-                                                if (health.percentage != null && previousHealth?.percentage != null) {
-                                                    val delta = health.percentage - previousHealth.percentage
-                                                    Text("Since previous saved scan: ${if (delta > 0) "+" else ""}$delta percentage points",
+                                                if (health.thresholdCrossings.isNotEmpty()) {
+                                                    Text("Attributes at/below their reported thresholds: ${health.thresholdCrossings.joinToString()}",
                                                         style = MaterialTheme.typography.bodySmall)
                                                 }
-                                                Text("This is an HDHA estimate, not an official manufacturer rating or failure prediction.",
+                                                Text(health.explanation, style = MaterialTheme.typography.bodySmall)
+                                                Text("No remaining-life estimate is produced. Keep backups even when SMART reports no threshold exceeded.",
                                                     style = MaterialTheme.typography.bodySmall)
                                             }
                                         }

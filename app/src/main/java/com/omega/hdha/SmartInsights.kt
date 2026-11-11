@@ -98,7 +98,7 @@ data class SmartSample(
  */
 object SmartDeviceIdentity {
     private fun normalize(value: String): String =
-        value.trim().replace(Regex("\\\\s+"), " ").uppercase(Locale.ROOT)
+        value.trim().replace(Regex("\\s+"), " ").uppercase(Locale.ROOT)
 
     fun matches(sample: SmartSample, deviceKey: String, vendor: String, model: String, serial: String): Boolean =
         normalize(sample.deviceKey) == normalize(deviceKey) &&

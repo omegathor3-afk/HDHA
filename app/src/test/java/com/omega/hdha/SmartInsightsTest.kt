@@ -122,7 +122,7 @@ class SmartInsightsTest {
 
     @Test fun sameSerialFromDifferentVendorIsNotUsedAsTrendBaseline() {
         val previous = sample(current = 95)
-        val current = sample(time = 2, current = 89).copy(vendor = "Western Digital", model = "WD10EZEX")
+        val current = sample(time = 2, current = 89).copy(vendor = "Western Digital")
         val alerts = SmartTrendAnalyzer.compare(previous, current)
         assertFalse(alerts.any { it.attributeId == 5 && it.severity == AlertSeverity.WARNING })
         assertTrue(alerts.any { it.message.contains("First saved sample") })

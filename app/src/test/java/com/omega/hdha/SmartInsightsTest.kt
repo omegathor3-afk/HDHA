@@ -79,6 +79,19 @@ class SmartInsightsTest {
         assertEquals(firstPath, SmartDeviceIdentity.deviceKey("  ", 0x0BDA, 0x9201, "RTL9201", "/dev/bus/usb/001/002"))
     }
 
+    @Test fun seriallessSamplesDoNotCompareTrendsFromAReusableUsbPath() {
+        val key = SmartDeviceIdentity.deviceKey("", 0x0BDA, 0x9201, "ST1000DM", "/dev/bus/usb/001/002")
+        val previous = sample(time = 1, current = 95).copy(deviceKey = key, serial = "")
+        val current = previous.copy(
+            capturedAtMillis = 2,
+            attributes = previous.attributes.map { it.copy(current = 80, rawValueHex = "020000000000") }
+        )
+
+        val alerts = SmartTrendAnalyzer.compare(previous, current)
+        assertFalse(alerts.any { it.message.contains("normalized value fell") })
+        assertTrue(alerts.any { it.message.contains("serial is unavailable") })
+    }
+
     @Test fun serialIdentityRemainsStableAcrossUsbPortChanges() {
         val firstPath = SmartDeviceIdentity.deviceKey("SN-123", 0x0BDA, 0x9201, "RTL9201", "/dev/bus/usb/001/002")
         val secondPath = SmartDeviceIdentity.deviceKey(" sn-123 ", 0x0BDA, 0x9201, "RTL9201", "/dev/bus/usb/001/003")

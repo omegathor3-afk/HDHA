@@ -154,18 +154,19 @@ object SmartTrendAnalyzer {
         current.attributes.forEach { now ->
             val definition = SmartAttributeProfiles.describe(profile, now.id)
             val threshold = current.thresholds[now.id]
-            if (threshold != null && threshold > 0 && now.current <= threshold) {
+            if (threshold != null && threshold in 1..253 && now.current in 1..253 && now.current <= threshold) {
                 alerts += SmartAlert(now.id, AlertSeverity.CRITICAL,
                     "${definition.label}: normalized value ${now.current} is at/below threshold $threshold.")
             }
             val old = prior[now.id] ?: return@forEach
+            val normalizedValuesComparable = now.current in 1..253 && old.current in 1..253
             when (definition.direction) {
                 AttributeDirection.LOWER_NORMALIZED_IS_WORSE -> {
-                    if (now.current < old.current) alerts += SmartAlert(now.id, AlertSeverity.WARNING,
+                    if (normalizedValuesComparable && now.current < old.current) alerts += SmartAlert(now.id, AlertSeverity.WARNING,
                         "${definition.label}: normalized value fell from ${old.current} to ${now.current}.")
                 }
                 AttributeDirection.HIGHER_NORMALIZED_IS_WORSE -> {
-                    if (now.current > old.current) alerts += SmartAlert(now.id, AlertSeverity.WARNING,
+                    if (normalizedValuesComparable && now.current > old.current) alerts += SmartAlert(now.id, AlertSeverity.WARNING,
                         "${definition.label}: normalized value rose from ${old.current} to ${now.current}.")
                 }
                 AttributeDirection.UNKNOWN -> Unit

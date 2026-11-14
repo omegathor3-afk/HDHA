@@ -101,10 +101,10 @@ object SmartDeviceIdentity {
         value.trim().replace(Regex("\\s+"), " ").uppercase(Locale.ROOT)
 
     /**
-     * A serial number is the preferred persistent identity. When it is absent,
-     * include the current USB device path so two identical drives connected at
-     * the same time cannot share a SMART history baseline. That fallback is
-     * intentionally session/port scoped; a later reconnect may start a new baseline.
+     * A serial number is the only persistent physical-drive identity used for trend
+     * comparisons. Without one, the USB path is retained only as a best-effort
+     * storage key that separates drives attached at different paths; a path can be
+     * reused, so SmartTrendAnalyzer must not treat it as proof of drive identity.
      */
     fun deviceKey(serial: String, vendorId: Int, productId: Int, model: String, usbDeviceName: String): String {
         val normalizedSerial = normalize(serial)
@@ -137,7 +137,12 @@ object SmartTrendAnalyzer {
                 "SMART RETURN STATUS is unknown; no overall health verdict is available.")
             false -> Unit
         }
+        // A USB path is reusable and is not a durable physical-drive identifier.
+        // If ATA IDENTIFY did not expose a serial, keep the sample but never infer a
+        // trend from a persisted port-scoped key that may now belong to another drive.
         val hasMatchingPrevious = previous != null &&
+            current.serial.isNotBlank() &&
+            previous.serial.isNotBlank() &&
             previous.capturedAtMillis < current.capturedAtMillis &&
             SmartDeviceIdentity.sameDevice(previous, current)
         val prior = previous
@@ -171,8 +176,12 @@ object SmartTrendAnalyzer {
             }
         }
         if (!hasMatchingPrevious && current.thresholdExceeded != true && alerts.none { it.severity == AlertSeverity.CRITICAL }) {
-            alerts += SmartAlert(null, AlertSeverity.INFO,
-                "First saved sample: future comparisons will establish a baseline; no trend is inferred yet.")
+            val baselineMessage = if (current.serial.isBlank()) {
+                "Drive serial is unavailable; SMART history is saved, but trend comparisons are disabled to avoid mixing identical drives."
+            } else {
+                "First saved sample: future comparisons will establish a baseline; no trend is inferred yet."
+            }
+            alerts += SmartAlert(null, AlertSeverity.INFO, baselineMessage)
         }
         return alerts.distinctBy { Triple(it.attributeId, it.severity, it.message) }
     }

@@ -100,6 +100,19 @@ object SmartDeviceIdentity {
     private fun normalize(value: String): String =
         value.trim().replace(Regex("\\s+"), " ").uppercase(Locale.ROOT)
 
+    /**
+     * A serial number is the preferred persistent identity. When it is absent,
+     * include the current USB device path so two identical drives connected at
+     * the same time cannot share a SMART history baseline. That fallback is
+     * intentionally session/port scoped; a later reconnect may start a new baseline.
+     */
+    fun deviceKey(serial: String, vendorId: Int, productId: Int, model: String, usbDeviceName: String): String {
+        val normalizedSerial = normalize(serial)
+        if (normalizedSerial.isNotBlank()) return "serial:" + normalizedSerial
+        val path = normalize(usbDeviceName)
+        return "usb:" + vendorId + ":" + productId + ":" + normalize(model) + ":" + path
+    }
+
     fun matches(sample: SmartSample, deviceKey: String, vendor: String, model: String, serial: String): Boolean =
         normalize(sample.deviceKey) == normalize(deviceKey) &&
             normalize(sample.vendor) == normalize(vendor) &&
@@ -171,7 +184,7 @@ class SmartHistoryStore(context: Context) {
     @Synchronized
     fun append(sample: SmartSample): List<SmartSample> {
         val all = readAll().filterNot {
-            it.deviceKey == sample.deviceKey && it.capturedAtMillis == sample.capturedAtMillis
+            it.capturedAtMillis == sample.capturedAtMillis && SmartDeviceIdentity.sameDevice(it, sample)
         } + sample
         val bounded = all.sortedBy { it.capturedAtMillis }.takeLast(MAX_SAMPLES)
         preferences.edit().putString(KEY, JSONArray().apply {

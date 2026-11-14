@@ -118,7 +118,13 @@ class MainActivity : ComponentActivity() {
                 val vendor = inquiryResults[deviceName]?.vendor.orEmpty().ifBlank { candidate?.manufacturer.orEmpty() }
                 val model = identify?.model.orEmpty().ifBlank { candidate?.product.orEmpty() }
                 val serial = identify?.serialNumber.orEmpty()
-                val key = serial.ifBlank { (candidate?.vendorId.toString() + ":" + candidate?.productId + ":" + model) }
+                val key = SmartDeviceIdentity.deviceKey(
+                    serial = serial,
+                    vendorId = candidate?.vendorId ?: device.vendorId,
+                    productId = candidate?.productId ?: device.productId,
+                    model = model,
+                    usbDeviceName = device.deviceName
+                )
                 val profile = SmartAttributeProfiles.resolve(vendor, model)
                 val sample = SmartSample(System.currentTimeMillis(), key, vendor, model, serial, profile.key,
                     result.thresholdExceeded, result.attributes, result.thresholds)
@@ -273,9 +279,13 @@ private fun HdhaScreen(
                                         .ifBlank { device.manufacturer }
                                     val historyModel = historyAta?.model.orEmpty().ifBlank { device.product }
                                     val historySerial = historyAta?.serialNumber.orEmpty()
-                                    val historyKey = historySerial.ifBlank {
-                                        device.vendorId.toString() + ":" + device.productId + ":" + historyModel
-                                    }
+                                    val historyKey = SmartDeviceIdentity.deviceKey(
+                                        serial = historySerial,
+                                        vendorId = device.vendorId,
+                                        productId = device.productId,
+                                        model = historyModel,
+                                        usbDeviceName = device.deviceName
+                                    )
                                     val matchingSamples = historySamples.filter {
                                         SmartDeviceIdentity.matches(it, historyKey, historyVendor, historyModel, historySerial)
                                     }.sortedBy { it.capturedAtMillis }

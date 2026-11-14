@@ -72,6 +72,19 @@ class SmartInsightsTest {
         assertFalse(alerts.any { it.message.contains("healthy", ignoreCase = true) })
     }
 
+    @Test fun missingSerialFallbackUsesUsbPathToSeparateIdenticalDrives() {
+        val firstPath = SmartDeviceIdentity.deviceKey("", 0x0BDA, 0x9201, "RTL9201", "/dev/bus/usb/001/002")
+        val secondPath = SmartDeviceIdentity.deviceKey("", 0x0BDA, 0x9201, "RTL9201", "/dev/bus/usb/001/003")
+        assertNotEquals(firstPath, secondPath)
+        assertEquals(firstPath, SmartDeviceIdentity.deviceKey("  ", 0x0BDA, 0x9201, "RTL9201", "/dev/bus/usb/001/002"))
+    }
+
+    @Test fun serialIdentityRemainsStableAcrossUsbPortChanges() {
+        val firstPath = SmartDeviceIdentity.deviceKey("SN-123", 0x0BDA, 0x9201, "RTL9201", "/dev/bus/usb/001/002")
+        val secondPath = SmartDeviceIdentity.deviceKey(" sn-123 ", 0x0BDA, 0x9201, "RTL9201", "/dev/bus/usb/001/003")
+        assertEquals(firstPath, secondPath)
+    }
+
     @Test fun reportIncludesDeviceDataRawValuesAndLimitations() {
         val report = SmartReportFormatter.format(listOf(sample()), 1000L)
         assertTrue(report.contains("HDHA — SMART DRIVE REPORT"))

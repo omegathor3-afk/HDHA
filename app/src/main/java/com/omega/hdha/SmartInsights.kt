@@ -264,7 +264,13 @@ object SmartReportFormatter {
         if (samples.isEmpty()) return "HDHA SMART REPORT\nNo SMART samples have been saved yet.\n"
         val sorted = samples.sortedBy { it.capturedAtMillis }
         val latest = sorted.last()
-        val matchingSamples = sorted.filter { SmartDeviceIdentity.sameDevice(it, latest) }
+        // A USB path can be reused by a different physical drive. Without an ATA serial,
+        // retain the latest sample only; never count port-scoped history as the same drive.
+        val matchingSamples = if (latest.serial.isBlank()) {
+            listOf(latest)
+        } else {
+            sorted.filter { SmartDeviceIdentity.sameDevice(it, latest) }
+        }
         val previous = matchingSamples.dropLast(1).lastOrNull()
         val profile = SmartAttributeProfiles.resolve(latest.vendor, latest.model)
         val alerts = SmartTrendAnalyzer.compare(previous, latest)

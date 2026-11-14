@@ -66,6 +66,29 @@ class SmartInsightsTest {
         })
     }
 
+    @Test fun invalidNormalizedValuesDoNotTriggerThresholdOrTrendAlerts() {
+        listOf(0, 254, 255).forEach { invalid ->
+            val invalidCurrent = sample(current = invalid)
+            val thresholdAlerts = SmartTrendAnalyzer.compare(null, invalidCurrent)
+            assertFalse(thresholdAlerts.any {
+                it.attributeId == 5 && it.severity == AlertSeverity.CRITICAL
+            })
+
+            val previous = sample(time = 1, current = 90)
+            val current = sample(time = 2, current = invalid)
+            val trendAlerts = SmartTrendAnalyzer.compare(previous, current)
+            assertFalse(trendAlerts.any {
+                it.attributeId == 5 && it.severity == AlertSeverity.WARNING
+            })
+
+            val invalidThreshold = sample(current = 5).copy(thresholds = mapOf(5 to invalid))
+            val invalidThresholdAlerts = SmartTrendAnalyzer.compare(null, invalidThreshold)
+            assertFalse(invalidThresholdAlerts.any {
+                it.attributeId == 5 && it.severity == AlertSeverity.CRITICAL
+            })
+        }
+    }
+
     @Test fun unknownReturnStatusDoesNotBecomeHealthy() {
         val alerts = SmartTrendAnalyzer.compare(null, sample(status = null))
         assertTrue(alerts.any { it.message.contains("unknown") })

@@ -36,6 +36,7 @@ USB descriptors do not prove that a bridge supports SAT or passes ATA commands. 
 - Attribute labels are held in an extensible registry with generic and vendor-family fallbacks. Model-specific profiles can be added without changing the SMART wire parser.
 - Raw six-byte ATA attribute values remain hexadecimal unless a verified model-specific decoder is supplied. Current/worst normalized values and thresholds are kept separate.
 - Successful snapshots are stored locally in app-private SharedPreferences as bounded JSON history (maximum 500 samples); there is no cloud transfer.
+- Trend baselines require a nonblank ATA IDENTIFY serial matched with vendor/model. If serial is unavailable, retain the sample but disable trend comparison: a USB path can be reused and is not a durable physical-drive identity.
 - Trend analysis compares normalized values only where the profile declares a direction. Unknown raw changes are informational; threshold crossings and SMART RETURN STATUS failures are elevated conservatively.
 - Plain-text report export uses Android's share sheet. Reports include identity, profile, attributes, status, alerts and limitations.
 

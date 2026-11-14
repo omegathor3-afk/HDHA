@@ -187,4 +187,23 @@ class SmartInsightsTest {
         assertFalse(report.contains("CHANGE SINCE PREVIOUS SAMPLE"))
     }
 
+    @Test fun seriallessReportDoesNotCountHistoryFromAReusedUsbPath() {
+        val key = SmartDeviceIdentity.deviceKey(
+            "", 0x0BDA, 0x9201, "RTL9201", "/dev/bus/usb/001/002"
+        )
+        val first = sample(time = 1).copy(
+            deviceKey = key, vendor = "Realtek", model = "RTL9201", serial = ""
+        )
+        val latest = first.copy(
+            capturedAtMillis = 2,
+            attributes = first.attributes.map { it.copy(current = 80, rawValueHex = "020000000000") }
+        )
+
+        val report = SmartReportFormatter.format(listOf(first, latest), 1000L)
+
+        assertTrue(report.contains("Samples retained: 1"))
+        assertTrue(report.contains("Drive serial is unavailable"))
+        assertFalse(report.contains("CHANGE SINCE PREVIOUS SAMPLE"))
+    }
+
 }
